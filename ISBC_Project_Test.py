@@ -1,0 +1,1013 @@
+"""
+ISBC Project Test — End-to-End (Create → Publish)
+builders-qa.onsumaye.com
+Based on exact UI screenshots provided.
+"""
+
+import sys
+import os
+import json
+import time
+from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
+load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
+
+BASE_URL  = os.getenv("BASE_URL")   # e.g. https://builders-qa.onsumaye.com
+EMAIL     = os.getenv("EMAIL")
+PASSWORD  = os.getenv("PASSWORD")
+HT_USER   = os.getenv("HT_USER")
+HT_PASS   = os.getenv("HT_PASS")
+
+# ── Cookies (from your EditThisCookie export) ─────────────────
+COOKIES_JSON = """
+[
+{"domain":".builders-qa.onsumaye.com","expirationDate":1781352045.886525,"hostOnly":false,"httpOnly":false,"name":"_ga","path":"/","sameSite":"no_restriction","secure":true,"session":false,"storeId":"0","value":"GA1.1.363374235.1746792045","id":1},
+{"domain":".builders-qa.onsumaye.com","expirationDate":1806743700.937161,"hostOnly":false,"httpOnly":false,"name":"_ga_H2MRQMFXV5","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"deleted","id":2},
+{"domain":".builders-qa.onsumaye.com","expirationDate":1800354782.173412,"hostOnly":false,"httpOnly":false,"name":"_ga_TRJS24038B","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"deleted","id":3},
+{"domain":".builders-qa.onsumaye.com","expirationDate":1777112685,"hostOnly":false,"httpOnly":false,"name":"_gid","path":"/","sameSite":"no_restriction","secure":true,"session":false,"storeId":"0","value":"GA1.1.508604206.1777026285","id":4},
+{"domain":".builders-qa.onsumaye.com","expirationDate":1808567824,"hostOnly":false,"httpOnly":false,"name":"utag_main","path":"/","sameSite":"unspecified","secure":true,"session":false,"storeId":"0","value":"ad_blocker:0$wa_ecid:07988640998635793652918984641566660336","id":5},
+{"domain":".onsumaye.com","expirationDate":1800335160,"hostOnly":false,"httpOnly":false,"name":"_cc_id","path":"/","sameSite":"lax","secure":false,"session":false,"storeId":"0","value":"a1cf7b6c5717c714c391d0fc51946c79","id":6},
+{"domain":".onsumaye.com","expirationDate":1811592968.439269,"hostOnly":false,"httpOnly":false,"name":"_ga","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"GA1.1.363374235.1746792045","id":9},
+{"domain":".onsumaye.com","expirationDate":1811592968.438556,"hostOnly":false,"httpOnly":false,"name":"_ga_H2MRQMFXV5","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"GS2.1.s1777030558$o29$g1$t1777032968$j58$l0$h0","id":11},
+{"domain":".onsumaye.com","expirationDate":1811592968.405905,"hostOnly":false,"httpOnly":false,"name":"_ga_TRJS24038B","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"GS2.1.s1777030557$o61$g1$t1777032968$j58$l0$h0","id":12},
+{"domain":".onsumaye.com","expirationDate":1802582659,"hostOnly":false,"httpOnly":false,"name":"AMCV_AD2A1C8B53308E600A490D4D%40AdobeOrg","path":"/","sameSite":"no_restriction","secure":true,"session":false,"storeId":"0","value":"MCMID|30434036045653792242172604673679289624","id":13},
+{"domain":".onsumaye.com","expirationDate":1810893118,"hostOnly":false,"httpOnly":false,"name":"kndctr_AD2A1C8B53308E600A490D4D_AdobeOrg_identity","path":"/","sameSite":"no_restriction","secure":true,"session":false,"storeId":"0","value":"CiYzMDQzNDAzNjA0NTY1Mzc5MjI0MjE3MjYwNDY3MzY3OTI4OTYyNFITCMv06s29MxABGAEqBElORDEwAPAB1NPQ-9oz","id":15},
+{"domain":"builders-qa.onsumaye.com","expirationDate":1800354782.174469,"hostOnly":true,"httpOnly":false,"name":"_ga_TRJS24038B","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"deleted","id":19},
+{"domain":"builders-qa.onsumaye.com","hostOnly":true,"httpOnly":true,"name":"9b8e6586e381547382d1defd0fbb61b7","path":"/","sameSite":"unspecified","secure":true,"session":true,"storeId":"0","value":"1l6m3f9k7ue0ttlemgj3egq5pb","id":20},
+{"domain":"builders-qa.onsumaye.com","hostOnly":true,"httpOnly":true,"name":"authCode","path":"/","sameSite":"lax","secure":true,"session":true,"storeId":"0","value":"aXNic3NvdGVzdDk5QG1haWxpbmF0b3IuY29t","id":21},
+{"domain":"builders-qa.onsumaye.com","hostOnly":true,"httpOnly":false,"name":"joomla_logged_in","path":"/","sameSite":"unspecified","secure":true,"session":true,"storeId":"0","value":"1","id":26},
+{"domain":"builders-qa.onsumaye.com","hostOnly":true,"httpOnly":true,"name":"joomla_user_state","path":"/","sameSite":"unspecified","secure":true,"session":true,"storeId":"0","value":"logged_in","id":27},
+{"domain":"builders-qa.onsumaye.com","hostOnly":true,"httpOnly":false,"name":"logged_in","path":"/","sameSite":"unspecified","secure":true,"session":true,"storeId":"0","value":"yes","id":28},
+{"domain":"builders-qa.onsumaye.com","hostOnly":true,"httpOnly":false,"name":"logged_in_name","path":"/","sameSite":"unspecified","secure":true,"session":true,"storeId":"0","value":"ISB%20SSOTEST99","id":29},
+{"domain":"builders-qa.onsumaye.com","expirationDate":1777119369.023201,"hostOnly":true,"httpOnly":false,"name":"userData","path":"/","sameSite":"unspecified","secure":false,"session":false,"storeId":"0","value":"%7B%22id%22%3A53994%2C%22username%22%3A%22isbssotest99%40mailinator.com%22%2C%22email%22%3A%22isbssotest99%40mailinator.com%22%2C%22name%22%3A%22ISB%20SSOTEST99%22%2C%22block%22%3A0%7D","id":31}
+]
+"""
+
+# ── Dummy test data ───────────────────────────────────────────
+import random, string
+_uid = ''.join(random.choices(string.digits, k=4))
+
+PROJECT_NAME     = f"AI Edge Analytics Platform {_uid}"
+PROJECT_DESC     = "This platform delivers real-time AI inferencing at the edge for industrial IoT."
+BUSINESS_PROBLEM = ("Manufacturing lacks real-time visibility into equipment health, "
+                    "causing unplanned downtime and costly production losses.")
+SOLUTION_FEATURES= ("Our app deploys AI models on Intel-powered edge devices. "
+                    "Key features: (1) Real-time anomaly detection, "
+                    "(2) Predictive maintenance alerts, "
+                    "(3) OPC-UA integration, "
+                    "(4) Cloud dashboard for fleet management.")
+AI_WORKLOAD_DESC = ("The application performs computer vision and Generative AI workloads "
+                    "using OpenVINO-optimized models for real-time object detection.")
+SUCCESS_STORY    = ("An automotive OEM deployed our solution across 12 production lines, "
+                    "reducing unplanned downtime by 34% and saving $2.1M annually.")
+SUPPORT_DESC     = ("We provide 24/7 enterprise support via dedicated Slack channels, "
+                    "a self-service knowledge base, and an assigned customer success manager.")
+ADDITIONAL_INFO  = ("Our platform is built on Intel OpenVINO and integrates with MES and "
+                    "SCADA systems. Supports Intel Core Ultra and Xeon processors.")
+STEP_TITLE       = "Deploy the Edge AI Runtime"
+STEP_DESC        = ("Install Intel OpenVINO runtime. Configure the inference pipeline "
+                    "using the provided Docker Compose templates. Connect to OPC-UA source.")
+ODM_TEXT         = "N/A"
+
+
+# ─────────────────────────────────────────────────────────────
+#  UTILITIES
+# ─────────────────────────────────────────────────────────────
+def parse_cookies(raw: str) -> list:
+    try:
+        items = json.loads(raw.strip())
+    except Exception:
+        return []
+    mp = {"no_restriction": "None", "lax": "Lax", "strict": "Strict", "unspecified": "None"}
+    out = []
+    for c in items:
+        ck = {
+            "name":     c.get("name", ""),
+            "value":    c.get("value", ""),
+            "domain":   c.get("domain", ""),
+            "path":     c.get("path", "/"),
+            "secure":   bool(c.get("secure", False)),
+            "httpOnly": bool(c.get("httpOnly", False)),
+            "sameSite": mp.get(str(c.get("sameSite", "")).lower(), "None"),
+        }
+        if "expirationDate" in c:
+            ck["expires"] = int(c["expirationDate"])
+        out.append(ck)
+    return out
+
+
+def sep(n, title):
+    print(f"\n{'─'*62}\n  STEP {n} │ {title}\n{'─'*62}")
+
+
+def shot(page, name):
+    try:
+        page.screenshot(path=f"{name}.png")
+        print(f"  [📷] {name}.png")
+    except Exception:
+        pass
+
+
+def try_click(page, selectors, label, timeout=12000):
+    """Try each selector and click the first that works."""
+    if isinstance(selectors, str):
+        selectors = [selectors]
+    for sel in selectors:
+        try:
+            el = page.wait_for_selector(sel, timeout=timeout, state="visible")
+            el.scroll_into_view_if_needed()
+            time.sleep(0.3)
+            el.click()
+            print(f"  [OK] Clicked '{label}'")
+            return True
+        except Exception:
+            continue
+    print(f"  [WARN] Could not click '{label}' — dumping buttons:")
+    for b in page.query_selector_all("button")[:20]:
+        try:
+            t = b.inner_text().strip()
+            if t:
+                print(f"    • '{t}'")
+        except Exception:
+            pass
+    shot(page, f"dbg_{label[:25].replace(' ','_')}")
+    return False
+
+
+def try_fill(page, selectors, value, label, timeout=10000):
+    """Fill a plain text input or textarea."""
+    if isinstance(selectors, str):
+        selectors = [selectors]
+    for sel in selectors:
+        try:
+            el = page.wait_for_selector(sel, timeout=timeout, state="visible")
+            el.scroll_into_view_if_needed()
+            el.click()
+            el.fill(value)
+            print(f"  [OK] Filled '{label}'")
+            return True
+        except Exception:
+            continue
+    print(f"  [WARN] Could not fill '{label}'")
+    return False
+
+
+def fill_rich_text(page, container_sel, value, label, timeout=10000):
+    """
+    Fill a rich-text (contenteditable) editor.
+    From screenshots Q3/Q4/Q6 etc. use a rich-text editor with a toolbar.
+    """
+    for sel in [
+        f"{container_sel} .ql-editor",
+        f"{container_sel} [contenteditable='true']",
+        f"{container_sel} .tox-edit-area__iframe",
+        f"{container_sel} textarea",
+        f"{container_sel} input[type='text']",
+    ]:
+        try:
+            el = page.wait_for_selector(sel, timeout=timeout, state="visible")
+            el.scroll_into_view_if_needed()
+            el.click()
+            # Clear and type
+            el.fill("") if sel.endswith("textarea") or "input" in sel else None
+            page.keyboard.press("Control+a")
+            page.keyboard.type(value)
+            print(f"  [OK] Rich-text filled '{label}'")
+            return True
+        except Exception:
+            continue
+    # Fallback: just find any visible contenteditable near the label
+    try:
+        page.evaluate(f"""
+            var editors = document.querySelectorAll('[contenteditable="true"]');
+            if(editors.length > 0) {{
+                editors[editors.length-1].focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, {json.dumps(value)});
+            }}
+        """)
+        print(f"  [OK] Rich-text filled '{label}' via JS")
+        return True
+    except Exception as e:
+        print(f"  [WARN] Could not fill rich-text '{label}': {e}")
+    return False
+
+
+def select_from_dropdown(page, dropdown_trigger_sels, option_text, label, timeout=10000):
+    """
+    Click a custom multi-select dropdown to open it,
+    then click the matching option.
+    From screenshots Q2/Q3/Q4/Q8 use "Select from this list" style dropdowns.
+    """
+    if isinstance(dropdown_trigger_sels, str):
+        dropdown_trigger_sels = [dropdown_trigger_sels]
+
+    for trig in dropdown_trigger_sels:
+        try:
+            el = page.wait_for_selector(trig, timeout=timeout, state="visible")
+            el.scroll_into_view_if_needed()
+            el.click()
+            time.sleep(0.6)
+            # Now pick the option
+            for opt_sel in [
+                f"text={option_text}",
+                f"[role='option']:has-text('{option_text}')",
+                f"li:has-text('{option_text}')",
+                f"div[class*='option']:has-text('{option_text}')",
+                f"span:has-text('{option_text}')",
+            ]:
+                try:
+                    page.wait_for_selector(opt_sel, timeout=4000, state="visible").click()
+                    print(f"  [OK] Selected '{option_text}' in '{label}'")
+                    time.sleep(0.3)
+                    # Close dropdown
+                    page.keyboard.press("Escape")
+                    time.sleep(0.2)
+                    return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    print(f"  [WARN] Could not select '{option_text}' in '{label}'")
+    return False
+
+
+def click_radio_yn(page, q_text_fragment, answer, label):
+    """
+    Select Yes or No radio button for a question.
+    From screenshots Q6/Q7/Q10 use Yes/No radio buttons.
+    """
+    selectors = [
+        # Try: find a label containing the answer near the question
+        f"xpath=//*[contains(text(),'{q_text_fragment}')]/following::label[normalize-space()='{answer}'][1]",
+        f"xpath=//*[contains(text(),'{q_text_fragment}')]/following::input[@type='radio'][@value='{answer}'][1]",
+        f"xpath=//*[contains(text(),'{q_text_fragment}')]/following::span[normalize-space()='{answer}'][1]",
+    ]
+    for sel in selectors:
+        try:
+            el = page.wait_for_selector(sel, timeout=6000, state="visible")
+            el.scroll_into_view_if_needed()
+            el.click()
+            print(f"  [OK] Radio '{answer}' for '{label}'")
+            return True
+        except Exception:
+            continue
+    print(f"  [WARN] Could not click radio '{answer}' for '{label}'")
+    return False
+
+
+def click_continue(page):
+    return try_click(page, [
+        "xpath=//button[normalize-space()='Continue']",
+        "button:has-text('Continue')",
+        "xpath=//input[@value='Continue']",
+    ], "Continue", timeout=10000)
+
+
+def click_next_step(page):
+    return try_click(page, [
+        "xpath=//button[normalize-space()='Next Step']",
+        "button:has-text('Next Step')",
+        "xpath=//a[normalize-space()='Next Step']",
+    ], "Next Step", timeout=10000)
+
+
+def is_login_page(page) -> bool:
+    url = page.url.lower()
+    return (
+        "consumer.intel.com" in url
+        or "consumerint.intel.com" in url
+        or "b2c_1a_unifiedlogin" in url
+        or ("login" in url and "onsumaye" not in url)
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+#  LOGIN
+# ─────────────────────────────────────────────────────────────
+def do_login(page):
+    """
+    From screenshots Image 2 & 3:
+      Page 1: single Email field + Next button
+      Page 2: Password field + Sign In button
+    """
+    print("  Login page detected — entering credentials from .env ...")
+    print(f"  URL: {page.url}")
+
+    # ── Email ──────────────────────────────────────────────
+    for sel in ["input[placeholder='Email']", "input[type='email']",
+                "input[name='loginfmt']", "input[id='i0116']"]:
+        try:
+            page.wait_for_selector(sel, timeout=10000, state="visible")
+            page.fill(sel, EMAIL)
+            print(f"  [OK] Email entered")
+            break
+        except PWTimeout:
+            continue
+    else:
+        print("  [ERR] Email field not found")
+        shot(page, "login_email_debug")
+        return False
+
+    time.sleep(0.5)
+
+    # ── Next ───────────────────────────────────────────────
+    for sel in ["button:has-text('Next')", "#idSIButton9",
+                "button[type='submit']", "input[value='Next']"]:
+        try:
+            page.click(sel, timeout=6000)
+            print("  [OK] Next clicked")
+            break
+        except PWTimeout:
+            continue
+
+    time.sleep(3)
+    shot(page, "login_after_email")
+
+    # ── Password ───────────────────────────────────────────
+    # Image 3 shows placeholder "Password" field
+    for sel in ["input[placeholder='Password']", "input[type='password']",
+                "input[name='passwd']", "input[id='i0118']"]:
+        try:
+            page.wait_for_selector(sel, timeout=12000, state="visible")
+            page.fill(sel, PASSWORD)
+            print("  [OK] Password entered")
+            break
+        except PWTimeout:
+            continue
+    else:
+        print("  [ERR] Password field not found")
+        shot(page, "login_pwd_debug")
+        return False
+
+    time.sleep(0.5)
+
+    # ── Sign In ────────────────────────────────────────────
+    # Image 3 shows "Sign In" button
+    for sel in ["button:has-text('Sign In')", "button:has-text('Sign in')",
+                "#idSIButton9", "button[type='submit']", "input[value='Sign in']"]:
+        try:
+            page.click(sel, timeout=6000)
+            print("  [OK] Sign In clicked")
+            break
+        except PWTimeout:
+            continue
+
+    time.sleep(4)
+    shot(page, "login_after_signin")
+
+    # Stay signed in prompt
+    for sel in ["button:has-text('Yes')", "#idSIButton9", "input[value='Yes']", "#idBtn_Back"]:
+        try:
+            page.click(sel, timeout=4000)
+            print("  [OK] Stay-signed-in prompt handled")
+            time.sleep(2)
+            break
+        except PWTimeout:
+            continue
+
+    # Poll for redirect back to app (up to 60s)
+    print("  Waiting for redirect", end="", flush=True)
+    for i in range(60):
+        time.sleep(1)
+        print(".", end="", flush=True)
+        if "onsumaye.com" in page.url and "login" not in page.url.lower():
+            print(f"\n  [OK] Redirected → {page.url}")
+            return True
+        try:
+            body = page.inner_text("body") or ""
+            if "Please provide the following details" in body and "contact administrator" in body:
+                print("\n  [ERR] Azure B2C bot-block. Refresh cookies.")
+                shot(page, "login_blocked")
+                return False
+        except Exception:
+            pass
+
+    print()
+    # Direct nav fallback
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+    time.sleep(4)
+    return "onsumaye.com" in page.url
+
+
+# ─────────────────────────────────────────────────────────────
+#  MAIN TEST
+# ─────────────────────────────────────────────────────────────
+def run_test():
+    cookies = parse_cookies(COOKIES_JSON)
+
+    print("=" * 62)
+    print("  ISBC Project Test — End-to-End Create → Publish")
+    print("=" * 62)
+    print(f"  BASE_URL : {BASE_URL}")
+    print(f"  EMAIL    : {EMAIL}")
+    print(f"  Cookies  : {len(cookies)} loaded")
+    print(f"  Project  : {PROJECT_NAME}")
+
+    with sync_playwright() as p:
+        print("\n🚀 Launching browser...")
+        browser = p.chromium.launch(
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled",
+                  "--no-sandbox", "--window-size=1440,900",
+                  "--start-maximized"]
+        )
+        ctx_args = {
+            "viewport":   {"width": 1440, "height": 900},
+            "user_agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/146.0.0.0 Safari/537.36"
+            ),
+        }
+        if HT_USER and HT_PASS:
+            ctx_args["http_credentials"] = {"username": HT_USER, "password": HT_PASS}
+            print(f"  HTTP Auth: {HT_USER}")
+
+        context = browser.new_context(**ctx_args)
+
+        # Pre-inject cookies before first navigation
+        if cookies:
+            try:
+                context.add_cookies(cookies)
+                print(f"  [OK] Pre-injected {len(cookies)} cookies")
+            except Exception as e:
+                print(f"  [WARN] Cookie pre-inject: {e}")
+
+        page = context.new_page()
+
+        # ── Open portal ───────────────────────────────────────
+        print(f"\n➡ Opening {BASE_URL} ...")
+        page.goto(BASE_URL, timeout=60000, wait_until="domcontentloaded")
+        time.sleep(3)
+        shot(page, "00_opened")
+        print(f"  URL: {page.url}")
+
+        # ── Click ENGAGEMENT in top nav ───────────────────────
+        # Image 1 shows "ENGAGEMENT" in the main nav bar
+        print("\n➡ Clicking ENGAGEMENT in top nav...")
+        try_click(page, [
+            "xpath=//nav//a[normalize-space()='ENGAGEMENT']",
+            "xpath=//a[normalize-space()='ENGAGEMENT']",
+            "xpath=//li[normalize-space()='ENGAGEMENT']/a",
+            "text=ENGAGEMENT",
+            "text=Engagement",
+        ], "ENGAGEMENT", timeout=15000)
+        time.sleep(2)
+        shot(page, "01_engagement_menu")
+
+        # ── Click Submit an Offering ──────────────────────────
+        # Image 1 shows "Submit an Offering" under "Industry Solution Builders Challenge"
+        print("\n➡ Clicking 'Submit an Offering'...")
+        try_click(page, [
+            "xpath=//a[normalize-space()='Submit an Offering']",
+            "text=Submit an Offering",
+            "xpath=//a[contains(.,'Submit an Offering')]",
+        ], "Submit an Offering", timeout=15000)
+        time.sleep(3)
+        shot(page, "02_submit_offering")
+        print(f"  URL: {page.url}")
+
+        # ── Handle login if redirected ────────────────────────
+        if is_login_page(page):
+            print("\n➡ Login required...")
+            if not do_login(page):
+                print("❌ Login failed — cannot continue.")
+                browser.close()
+                return
+        else:
+            print("  [OK] Already authenticated.")
+
+        shot(page, "03_after_login")
+        print(f"  URL: {page.url}")
+
+        # Navigate back if needed
+        if "onsumaye.com" not in page.url:
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+
+        # ── Click + Create a Project ──────────────────────────
+        # Image 4: shows "+ Create a Project" button (blue, top right)
+        print("\n➡ Clicking '+ Create a Project'...")
+        time.sleep(3)
+        try_click(page, [
+            "xpath=//a[contains(.,'Create a Project')]",
+            "xpath=//button[contains(.,'Create a Project')]",
+            "text=Create a Project",
+            "text=+ Create a Project",
+            "[href*='create']",
+        ], "+ Create a Project", timeout=30000)
+        time.sleep(4)
+        shot(page, "04_create_project")
+        print(f"  URL: {page.url}")
+
+        # ── Validate sections in left sidebar ─────────────────
+        # Image 5 shows left sidebar: Overview(1), Details(2), Additional Info(3)
+        print("\n➡ Validating sidebar sections...")
+        for sec in ["Overview", "Details", "Additional Info", "Application Steps", "Media"]:
+            try:
+                page.wait_for_selector(f"text={sec}", timeout=8000)
+                print(f"  ✅ Section visible: {sec}")
+            except PWTimeout:
+                print(f"  ⚠  Section not found: {sec}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 1 — Click Edit (on Overview section)
+        # Image 5: shows pencil ✎ Edit button on the right side
+        # ══════════════════════════════════════════════════════
+        sep(1, "Click Edit button on Overview")
+        try_click(page, [
+            "xpath=//a[contains(.,'Edit') and not(contains(.,'Project'))]",
+            "xpath=//button[normalize-space()='Edit']",
+            "xpath=//*[@class and contains(@class,'edit')]//a",
+            # The edit icon next to Overview
+            "xpath=//h2[contains(.,'Overview')]/following::a[contains(.,'Edit')][1]",
+            "xpath=//h2[contains(.,'Overview')]/following::button[contains(.,'Edit')][1]",
+            ".edit-btn", "[title='Edit']", "a.edit", "button.edit",
+        ], "Edit", timeout=10000)
+        time.sleep(2)
+        shot(page, "S01_edit_clicked")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 2 — Overview: fill Q1–Q6
+        # Image 6: shows the edit form with Q1-Q6
+        # ══════════════════════════════════════════════════════
+        sep(2, "Overview — fill Q1 to Q6")
+
+        # Q1: Project Name — simple text input
+        # Image 6: Q1 "Project Name *" is a plain input field
+        try_fill(page, [
+            "xpath=//label[contains(.,'Project Name')]/following::input[@type='text'][1]",
+            "input[name*='project_name' i]",
+            "input[id*='project_name' i]",
+            "input[placeholder*='name' i]",
+            "xpath=(//input[@type='text'])[1]",
+        ], PROJECT_NAME, "Q1: Project Name")
+        time.sleep(0.5)
+
+        # Q2: Project Description — simple textarea
+        # Image 6: Q2 "Project Description *" is a plain textarea
+        try_fill(page, [
+            "xpath=//label[contains(.,'Project Description')]/following::textarea[1]",
+            "textarea[name*='project_desc' i]",
+            "textarea[name*='description' i]",
+            "textarea[placeholder*='project description' i]",
+            "xpath=(//textarea)[1]",
+        ], PROJECT_DESC, "Q2: Project Description")
+        time.sleep(0.5)
+
+        # Q3: Business Problem — rich text editor (has toolbar)
+        # Image 6: Q3 has Normal/Bold/Italic/etc toolbar → rich text
+        q3_containers = [
+            "xpath=//label[contains(.,'business problem')]/following::div[contains(@class,'ql-')][1]/..",
+            "xpath=//h4[contains(.,'Q3')]/following::div[1]",
+            "xpath=(//div[contains(@class,'ql-container')])[1]",
+        ]
+        filled_q3 = False
+        for cont in q3_containers:
+            try:
+                editor = page.query_selector(f"{cont} .ql-editor, {cont} [contenteditable]")
+                if editor:
+                    editor.scroll_into_view_if_needed()
+                    editor.click()
+                    page.keyboard.press("Control+a")
+                    page.keyboard.type(BUSINESS_PROBLEM)
+                    print("  [OK] Q3: Business Problem filled")
+                    filled_q3 = True
+                    break
+            except Exception:
+                continue
+        if not filled_q3:
+            # Use JS to fill all rich text editors in order
+            page.evaluate(f"""
+                var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+                if(eds[0]) {{
+                    eds[0].focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('insertText', false, {json.dumps(BUSINESS_PROBLEM)});
+                }}
+            """)
+            print("  [OK] Q3: Business Problem filled via JS")
+        time.sleep(0.5)
+
+        # Q4: Solution — rich text editor (second rich text editor)
+        page.evaluate(f"""
+            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+            if(eds[1]) {{
+                eds[1].focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, {json.dumps(SOLUTION_FEATURES)});
+            }}
+        """)
+        print("  [OK] Q4: Solution & Key Features filled")
+        time.sleep(0.5)
+
+        # Q5: Industry — "Select from this list" dropdown (up to 3)
+        # Image 6: Q5 shows a dropdown "Select from this list"
+        industry_trigger = [
+            "xpath=//label[contains(.,'industry')]/following::div[contains(@class,'select')][1]",
+            "xpath=//label[contains(.,'industry')]/following::select[1]",
+            "xpath=//select[1]",
+            "select",
+        ]
+        # Try native select first
+        for industry in ["Manufacturing", "Healthcare", "Retail"]:
+            selected = False
+            for sel in ["xpath=//select[1]", "select"]:
+                try:
+                    page.select_option(sel, label=industry, timeout=3000)
+                    print(f"  [OK] Q5: Industry '{industry}' selected (native)")
+                    selected = True
+                    break
+                except Exception:
+                    continue
+            if not selected:
+                select_from_dropdown(page, [
+                    "xpath=//label[contains(.,'industry')]/following::div[contains(@class,'v-select') or contains(@class,'multiselect')][1]",
+                    "xpath=//label[contains(.,'industry')]/following::div[contains(@class,'select')][1]",
+                ], industry, f"Q5 Industry: {industry}")
+
+        # Q6: Use Cases — rich text / textarea (Image 6 shows toolbar for Q6)
+        page.evaluate(f"""
+            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+            if(eds[2]) {{
+                eds[2].focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false,
+                    'Predictive Maintenance, Computer Vision, Quality Control');
+            }}
+        """)
+        print("  [OK] Q6: Use Cases filled")
+        time.sleep(0.5)
+
+        shot(page, "S02_overview_filled")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 3 — Click Continue
+        # Image 6: "Done" button bottom-left, Continue bottom-right
+        # ══════════════════════════════════════════════════════
+        sep(3, "Click Continue (Overview → Details)")
+        click_continue(page)
+        time.sleep(3)
+        shot(page, "S03_after_continue_overview")
+        print(f"  URL: {page.url}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 4 — Details tab: click Edit, fill Q1–Q12
+        # Image 7: shows all 12 questions on Details tab
+        # ══════════════════════════════════════════════════════
+        sep(4, "Details tab — click Edit + fill Q1–Q12")
+
+        # Click Details in left sidebar
+        try_click(page, [
+            "xpath=//li[.//text()[normalize-space()='Details']]//a",
+            "xpath=//span[normalize-space()='Details']/ancestor::a[1]",
+            "text=Details",
+        ], "Details sidebar tab", timeout=8000)
+        time.sleep(2)
+
+        # Click Edit on Details section
+        try_click(page, [
+            "xpath=//button[normalize-space()='Edit']",
+            "xpath=//a[normalize-space()='Edit']",
+            "button:has-text('Edit')", "a:has-text('Edit')",
+        ], "Edit (Details)", timeout=10000)
+        time.sleep(2)
+        shot(page, "S04_details_edit_open")
+
+        # Q1: AI workload description — plain textarea (Image 7 top)
+        try_fill(page, [
+            "xpath=//label[contains(.,'AI workload')]/following::textarea[1]",
+            "textarea[name*='ai_workload' i]",
+            "textarea[name*='workload' i]",
+            "xpath=(//textarea)[1]",
+        ], AI_WORKLOAD_DESC, "Q1: AI Workload Description")
+        time.sleep(0.4)
+
+        # Q2: Where does AI workload take place — "Select from this list" dropdown
+        # Image 7: "Select from this list" dropdown
+        for loc in ["Edge", "Cloud"]:
+            select_from_dropdown(page, [
+                "xpath=//label[contains(.,'AI workload take place')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
+                "xpath=(//div[contains(@class,'multiselect')])[1]",
+                "xpath=(//select)[1]",
+            ], loc, f"Q2: {loc}")
+
+        # Q3: Hardware components — dropdown
+        for hw in ["CPU", "GPU", "NPU"]:
+            select_from_dropdown(page, [
+                "xpath=//label[contains(.,'hardware components')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
+                "xpath=(//div[contains(@class,'multiselect')])[2]",
+            ], hw, f"Q3: {hw}")
+
+        # Q4: What hardware — dropdown
+        for hw in ["Intel® Core™ Ultra Processors", "Intel® Xeon® Processors"]:
+            select_from_dropdown(page, [
+                "xpath=//label[contains(.,'What hardware does')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
+                "xpath=(//div[contains(@class,'multiselect')])[3]",
+            ], hw, f"Q4: {hw}")
+
+        # Q5: Open Software Platform — rich text editor with toolbar (Image 7)
+        # "Please list the software ingredients or type 'see attached'"
+        page.evaluate(f"""
+            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+            if(eds[0]) {{
+                eds[0].focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, 'OpenVINO, oneAPI, OpenDLStream');
+            }}
+        """)
+        print("  [OK] Q5: Open Software Platform ingredients filled")
+        time.sleep(0.3)
+
+        # Q6: Onboard process on Intel AI Edge System — Yes/No radio
+        # Image 7: "Yes" / "No" radio buttons
+        click_radio_yn(page, "onboard process", "Yes", "Q6: Onboard Process")
+
+        # Q7: Commercially available — Yes/No radio
+        click_radio_yn(page, "commercially available", "Yes", "Q7: Commercially Available")
+
+        # Q8: Geographies — "Select from this list" dropdown
+        for geo in ["North America", "Europe", "Asia Pacific"]:
+            select_from_dropdown(page, [
+                "xpath=//label[contains(.,'geographies')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
+                "xpath=(//div[contains(@class,'multiselect')])[4]",
+            ], geo, f"Q8: {geo}")
+
+        # Q9: Hardware ODMs/OEMs — plain textarea
+        # Image 7: "Please provide each ODM/OEM name on a separate line"
+        try_fill(page, [
+            "xpath=//label[contains(.,'ODM') or contains(.,'OEM')]/following::textarea[1]",
+            "xpath=//*[contains(.,'ODM')]/following::textarea[1]",
+        ], ODM_TEXT, "Q9: Hardware ODMs/OEMs")
+        time.sleep(0.3)
+
+        # Q10: Distribution Partners — Yes/No radio
+        click_radio_yn(page, "Distribution Partners", "No", "Q10: Distribution Partners")
+
+        # Q11: Customer Support — plain textarea
+        try_fill(page, [
+            "xpath=//label[contains(.,'customer support')]/following::textarea[1]",
+            "xpath=//*[contains(.,'manage customer support')]/following::textarea[1]",
+        ], SUPPORT_DESC, "Q11: Customer Support")
+        time.sleep(0.3)
+
+        # Q12: Success Stories — rich text editor (Image 7 bottom, has toolbar)
+        page.evaluate(f"""
+            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+            var last = eds[eds.length - 1];
+            if(last) {{
+                last.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, {json.dumps(SUCCESS_STORY)});
+            }}
+        """)
+        print("  [OK] Q12: Success Story filled")
+
+        shot(page, "S04_details_filled")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 5 — Click Continue (Details → Additional Info)
+        # ══════════════════════════════════════════════════════
+        sep(5, "Click Continue (Details)")
+        click_continue(page)
+        time.sleep(3)
+        shot(page, "S05_after_continue_details")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 6 — Additional Info: click Edit
+        # Image 8: shows Additional Info tab with Edit button top-right
+        # ══════════════════════════════════════════════════════
+        sep(6, "Additional Info — click Edit")
+        try_click(page, [
+            "xpath=//li[contains(.,'Additional Info')]//a",
+            "text=Additional Info",
+        ], "Additional Info sidebar tab", timeout=8000)
+        time.sleep(2)
+
+        try_click(page, [
+            "xpath=//button[normalize-space()='Edit']",
+            "xpath=//a[normalize-space()='Edit']",
+            "button:has-text('Edit')", "a:has-text('Edit')",
+        ], "Edit (Additional Info)", timeout=10000)
+        time.sleep(2)
+        shot(page, "S06_additional_info_edit")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 7 — Click '+ Add New Section', fill Section 1
+        # Image 8: "+ Add New Section" button
+        # Image 9: after clicking, shows "Section 1" label + rich text editor
+        # ══════════════════════════════════════════════════════
+        sep(7, "Add New Section + fill Section 1")
+        try_click(page, [
+            "xpath=//button[contains(.,'Add New Section')]",
+            "xpath=//a[contains(.,'Add New Section')]",
+            "button:has-text('Add New Section')",
+            "text=+ Add New Section",
+            "text=Add New Section",
+        ], "+ Add New Section", timeout=15000)
+        time.sleep(2)
+        shot(page, "S07_section_added")
+
+        # Image 9: "Section 1" header appears with a rich text editor below it
+        # Fill the Section 1 content via rich text editor
+        page.evaluate(f"""
+            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+            if(eds[0]) {{
+                eds[0].focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, {json.dumps(ADDITIONAL_INFO)});
+            }}
+        """)
+        print("  [OK] Section 1 content filled")
+        shot(page, "S07_section_filled")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 8 — Click Continue (Additional Info → App Steps)
+        # ══════════════════════════════════════════════════════
+        sep(8, "Click Continue (Additional Info)")
+        click_continue(page)
+        time.sleep(3)
+        shot(page, "S08_after_continue_additional")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 9 — Application Steps: click Edit
+        # Image 10: Application Steps tab with Edit button + "+ Add New Steps"
+        # ══════════════════════════════════════════════════════
+        sep(9, "Application Steps — click Edit")
+        try_click(page, [
+            "xpath=//li[contains(.,'Application Steps')]//a",
+            "text=Application Steps",
+        ], "Application Steps sidebar tab", timeout=8000)
+        time.sleep(2)
+
+        try_click(page, [
+            "xpath=//button[normalize-space()='Edit']",
+            "xpath=//a[normalize-space()='Edit']",
+            "button:has-text('Edit')", "a:has-text('Edit')",
+        ], "Edit (Application Steps)", timeout=10000)
+        time.sleep(2)
+        shot(page, "S09_appsteps_edit")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 10 — Click '+ Add New Steps', fill Title + Desc
+        # Image 10: "+ Add New Steps" button
+        # Image 11: after clicking, shows "Step Title *" input + "Step Description" rich text
+        # ══════════════════════════════════════════════════════
+        sep(10, "Add New Step + fill Title & Description")
+        try_click(page, [
+            "xpath=//button[contains(.,'Add New Steps')]",
+            "xpath=//a[contains(.,'Add New Steps')]",
+            "button:has-text('Add New Steps')",
+            "text=+ Add New Steps",
+            "text=Add New Steps",
+        ], "+ Add New Steps", timeout=15000)
+        time.sleep(2)
+        shot(page, "S10_step_appeared")
+
+        # Image 11: "Step Title *" is a plain text input
+        try_fill(page, [
+            "xpath=//label[contains(.,'Step Title')]/following::input[1]",
+            "input[placeholder*='Step Title' i]",
+            "input[name*='step_title' i]",
+            "input[name*='title' i]",
+            "xpath=(//input[@type='text'])[last()]",
+        ], STEP_TITLE, "Step Title")
+        time.sleep(0.4)
+
+        # Image 11: "Step Description" is a rich text editor with toolbar
+        page.evaluate(f"""
+            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+            if(eds[0]) {{
+                eds[0].focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, {json.dumps(STEP_DESC)});
+            }}
+        """)
+        print("  [OK] Step Description filled")
+        shot(page, "S10_step_filled")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 11 — Click Continue (App Steps → Media)
+        # ══════════════════════════════════════════════════════
+        sep(11, "Click Continue (Application Steps)")
+        click_continue(page)
+        time.sleep(3)
+        shot(page, "S11_after_continue_appsteps")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 12 — Skip Media: click Next Step
+        # Image 12: Media tab shows "No media" + "Next Step" button (bottom right)
+        # ══════════════════════════════════════════════════════
+        sep(12, "Skip Media — click Next Step")
+        click_next_step(page)
+        time.sleep(3)
+        shot(page, "S12_skip_media")
+        print(f"  URL: {page.url}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 13 — Skip My Team: click Next Step
+        # ══════════════════════════════════════════════════════
+        sep(13, "Skip My Team — click Next Step")
+        click_next_step(page)
+        time.sleep(3)
+        shot(page, "S13_skip_my_team")
+        print(f"  URL: {page.url}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 14 — Click Preview (under the progress banner)
+        # Image 13: shows "Preview" button in the dark progress bar (bottom of banner)
+        # ══════════════════════════════════════════════════════
+        sep(14, "Click Preview (in progress banner)")
+        try_click(page, [
+            "xpath=//button[normalize-space()='Preview']",
+            "xpath=//a[normalize-space()='Preview']",
+            "button:has-text('Preview')",
+            "a:has-text('Preview')",
+            "text=Preview",
+        ], "Preview", timeout=15000)
+        time.sleep(4)
+        shot(page, "S14_preview_page")
+        print(f"  URL: {page.url}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 15 — Click Edit Project (top right corner)
+        # Image 14: shows "Edit Project" button at top right of the preview page
+        # ══════════════════════════════════════════════════════
+        sep(15, "Click Edit Project (top-right on preview)")
+        try_click(page, [
+            "xpath=//button[normalize-space()='Edit Project']",
+            "xpath=//a[normalize-space()='Edit Project']",
+            "button:has-text('Edit Project')",
+            "a:has-text('Edit Project')",
+            "text=Edit Project",
+        ], "Edit Project", timeout=15000)
+        time.sleep(3)
+        shot(page, "S15_edit_project")
+        print(f"  URL: {page.url}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 16 — Click Publish Project
+        # Image 13: shows "Publish Project" button in dark banner (100% progress)
+        # ══════════════════════════════════════════════════════
+        sep(16, "Click Publish Project")
+        try_click(page, [
+            "xpath=//button[normalize-space()='Publish Project']",
+            "xpath=//a[normalize-space()='Publish Project']",
+            "button:has-text('Publish Project')",
+            "a:has-text('Publish Project')",
+            "text=Publish Project",
+        ], "Publish Project", timeout=20000)
+        time.sleep(3)
+        shot(page, "S16_after_publish_click")
+
+        # Confirmation dialog (if any)
+        for conf in ["button:has-text('Confirm')", "button:has-text('Yes')",
+                     "button:has-text('Publish')", "button:has-text('OK')"]:
+            try:
+                page.wait_for_selector(conf, timeout=4000, state="visible")
+                page.click(conf)
+                print(f"  [OK] Confirmation: {conf}")
+                time.sleep(2)
+                break
+            except PWTimeout:
+                continue
+
+        shot(page, "S16_published")
+        print(f"  URL: {page.url}")
+
+        # ══════════════════════════════════════════════════════
+        # STEP 17 — Click Projects under sub-menu
+        # Image 4: "Projects" is in the blue sub-navigation bar
+        # ══════════════════════════════════════════════════════
+        sep(17, "Click 'Projects' in sub-menu")
+        try_click(page, [
+            # Blue sub-nav bar has: Intake form | Projects | Resources | Advisors | Help
+            "xpath=//nav[contains(@class,'sub') or contains(@class,'inner')]//a[normalize-space()='Projects']",
+            "xpath=//div[contains(@class,'sub-nav') or contains(@class,'secondary')]//a[normalize-space()='Projects']",
+            "xpath=//ul//a[normalize-space()='Projects']",
+            "xpath=//a[normalize-space()='Projects']",
+            "text=Projects",
+        ], "Projects (sub-menu)", timeout=15000)
+        time.sleep(4)
+        shot(page, "S17_projects_page")
+        print(f"  URL: {page.url}")
+
+        # ── Final summary ─────────────────────────────────────
+        print(f"\n{'═'*62}")
+        print("  🎉 END-TO-END TEST COMPLETE")
+        print(f"{'═'*62}")
+        print(f"  Project Name : {PROJECT_NAME}")
+        print(f"  Final URL    : {page.url}")
+        print("  Screenshots  : S01 → S17 saved")
+
+        time.sleep(5)
+        browser.close()
+        print("\nBrowser closed. Done.")
+
+
+if __name__ == "__main__":
+    run_test()

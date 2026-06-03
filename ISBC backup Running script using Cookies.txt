@@ -1,0 +1,851 @@
+import sys
+import os
+import json
+import time
+from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+# Fix path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
+
+# Load env
+load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
+
+BASE_URL = os.getenv("BASE_URL")
+EMAIL    = os.getenv("EMAIL")
+PASSWORD = os.getenv("PASSWORD")
+HT_USER  = os.getenv("HT_USER")
+HT_PASS  = os.getenv("HT_PASS")
+
+# ─────────────────────────────────────────────────────────────
+#  ★  PASTE YOUR SESSION COOKIES HERE  ★
+#
+#  Intel's Azure B2C blocks ALL automated logins.
+#  Fix: extract your real session cookies from a manual login,
+#  paste them here, and the script skips the login page entirely.
+#
+#  HOW TO GET COOKIES (one time, 5 minutes):
+#  1. Open Chrome → log in to BASE_URL manually
+#  2. Install "EditThisCookie" Chrome extension
+#  3. While on the portal, click EditThisCookie → Export (📤 icon)
+#  4. Paste the copied JSON between the triple quotes below
+#  5. Run the script — no login page will appear
+#
+#  NOTE: Cookies expire after a few days. If script stops working,
+#        repeat the steps above to get fresh cookies.
+# ─────────────────────────────────────────────────────────────
+COOKIES_JSON = """
+
+{
+    "domain": ".builders-qa.onsumaye.com",
+    "expirationDate": 1781352045.886525,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "GA1.1.363374235.1746792045",
+    "id": 1
+},
+{
+    "domain": ".builders-qa.onsumaye.com",
+    "expirationDate": 1806743700.937161,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga_H2MRQMFXV5",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "deleted",
+    "id": 2
+},
+{
+    "domain": ".builders-qa.onsumaye.com",
+    "expirationDate": 1800354782.173412,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga_TRJS24038B",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "deleted",
+    "id": 3
+},
+{
+    "domain": ".builders-qa.onsumaye.com",
+    "expirationDate": 1777112685,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_gid",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "GA1.1.508604206.1777026285",
+    "id": 4
+},
+{
+    "domain": ".builders-qa.onsumaye.com",
+    "expirationDate": 1808567824,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "utag_main",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "ad_blocker:0$wa_ecid:07988640998635793652918984641566660336",
+    "id": 5
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1800335160,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_cc_id",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "a1cf7b6c5717c714c391d0fc51946c79",
+    "id": 6
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1800428164,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_clck",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "6s01tw%5E2%5Eg2v%5E0%5E2211",
+    "id": 7
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1782639315,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_fbp",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "fb.1.1771244004909.834751907800220593",
+    "id": 8
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1811592968.439269,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "GA1.1.363374235.1746792045",
+    "id": 9
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1803452997.741215,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga_88Z3DLBP1Q",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "GS2.1.s1768892164$o1$g0$t1768892997$j60$l0$h0",
+    "id": 10
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1811592968.438556,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga_H2MRQMFXV5",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "GS2.1.s1777030558$o29$g1$t1777032968$j58$l0$h0",
+    "id": 11
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1811592968.405905,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "_ga_TRJS24038B",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "GS2.1.s1777030557$o61$g1$t1777032968$j58$l0$h0",
+    "id": 12
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1802582659,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "AMCV_AD2A1C8B53308E600A490D4D%40AdobeOrg",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "MCMID|30434036045653792242172604673679289624",
+    "id": 13
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1800422659.875563,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "fpestid",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "bgwLVLfa8wEZ0gZEACPiu4sCtlE6PWFVKQEtxNFRuzBSE1XbrRklsyEInT5UZ6-CMAFumA",
+    "id": 14
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1810893118,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "kndctr_AD2A1C8B53308E600A490D4D_AdobeOrg_identity",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "CiYzMDQzNDAzNjA0NTY1Mzc5MjI0MjE3MjYwNDY3MzY3OTI4OTYyNFITCMv06s29MxABGAEqBElORDEwAPAB1NPQ-9oz",
+    "id": 15
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1777093561,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "panoramaId",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "c1d8f711385bb534d87bb1b1974fa9fb927af2107fb6b4f3e7d6d365ecd77cec",
+    "id": 16
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1777093561,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "panoramaId_expiry",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "1777093560589",
+    "id": 17
+},
+{
+    "domain": ".onsumaye.com",
+    "expirationDate": 1777093561,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "panoramaIdType",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "panoDevice",
+    "id": 18
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1800354782.174469,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "_ga_TRJS24038B",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "deleted",
+    "id": 19
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "9b8e6586e381547382d1defd0fbb61b7",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": true,
+    "storeId": "0",
+    "value": "1l6m3f9k7ue0ttlemgj3egq5pb",
+    "id": 20
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "authCode",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": true,
+    "session": true,
+    "storeId": "0",
+    "value": "aXNic3NvdGVzdDk5QG1haWxpbmF0b3IuY29t",
+    "id": 21
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1777637770.946454,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "AWSALBAPP-0",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "_remove_",
+    "id": 22
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1777637770.946579,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "AWSALBAPP-1",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "_remove_",
+    "id": 23
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1777637770.946631,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "AWSALBAPP-2",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "_remove_",
+    "id": 24
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1777637770.946675,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "AWSALBAPP-3",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "0",
+    "value": "_remove_",
+    "id": 25
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "joomla_logged_in",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": true,
+    "storeId": "0",
+    "value": "1",
+    "id": 26
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "joomla_user_state",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": true,
+    "storeId": "0",
+    "value": "logged_in",
+    "id": 27
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "logged_in",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": true,
+    "storeId": "0",
+    "value": "yes",
+    "id": 28
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "logged_in_name",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": true,
+    "storeId": "0",
+    "value": "ISB%20SSOTEST99",
+    "id": 29
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1791548199,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "OptanonConsent",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "isGpcEnabled=0&datestamp=Tue+Oct+14+2025+17%3A46%3A39+GMT%2B0530+(India+Standard+Time)&version=202507.1.0&browserGpcFlag=0&isIABGlobal=false&identifierType=Cookie+Unique+Id&hosts=&consentId=ff13cdba-91cc-4611-83c2-ca6a69c54fec&interactionCount=1&isAnonUser=1&landingPath=NotLandingPage&groups=C0001%3A1%2CC0003%3A1%2CC0004%3A1%2CC0002%3A1&iType=1&intType=1&geolocation=GB%3B&AwaitingReconsent=false",
+    "id": 30
+},
+{
+    "domain": "builders-qa.onsumaye.com",
+    "expirationDate": 1777119369.023201,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "userData",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "0",
+    "value": "%7B%22id%22%3A53994%2C%22username%22%3A%22isbssotest99%40mailinator.com%22%2C%22email%22%3A%22isbssotest99%40mailinator.com%22%2C%22name%22%3A%22ISB%20SSOTEST99%22%2C%22block%22%3A0%7D",
+    "id": 31
+}
+
+"""
+
+
+def parse_cookies(cookies_json: str) -> list:
+    """Convert EditThisCookie JSON → Playwright cookie format."""
+    try:
+        raw = json.loads(cookies_json.strip())
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    same_site_map = {
+        "no_restriction": "None",
+        "lax":            "Lax",
+        "strict":         "Strict",
+        "unspecified":    "None",
+    }
+
+    result = []
+    for c in raw:
+        raw_ss   = str(c.get("sameSite", "no_restriction")).lower()
+        cookie   = {
+            "name":     c.get("name", ""),
+            "value":    c.get("value", ""),
+            "domain":   c.get("domain", ""),
+            "path":     c.get("path", "/"),
+            "secure":   bool(c.get("secure", False)),
+            "httpOnly": bool(c.get("httpOnly", False)),
+            "sameSite": same_site_map.get(raw_ss, "None"),
+        }
+        if "expirationDate" in c:
+            cookie["expires"] = int(c["expirationDate"])
+        result.append(cookie)
+    return result
+
+
+def is_login_page(page) -> bool:
+    """Return True if the current page is an Intel/Azure B2C login page."""
+    url = page.url.lower()
+    return (
+        "login" in url
+        or "consumer.intel.com" in url
+        or "consumerint.intel.com" in url
+        or "b2c_1a_unifiedlogin" in url
+    )
+
+
+def inject_cookies_and_reload(page, context, cookies: list) -> bool:
+    """Inject cookies into the browser context and reload the page."""
+    if not cookies:
+        return False
+
+    # Must be on the target domain before adding cookies
+    domain_root = BASE_URL.rstrip("/")
+    if domain_root not in page.url:
+        page.goto(domain_root, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(2)
+
+    try:
+        context.add_cookies(cookies)
+        print(f"  [OK] Injected {len(cookies)} cookie(s).")
+    except Exception as e:
+        print(f"  [WARN] Cookie injection partial error: {e}")
+
+    # Reload so cookies take effect
+    page.reload(wait_until="domcontentloaded", timeout=30000)
+    time.sleep(3)
+    return True
+
+
+def do_sso_login_form(page) -> bool:
+    """
+    Attempt the standard Azure B2C email → password form login.
+    This may be blocked by Intel's bot detection, but we try anyway
+    as a fallback when no cookies are provided.
+    """
+    print("  [INFO] Attempting SSO form login (may be blocked by bot detection)...")
+    print(f"  Login URL: {page.url}")
+
+    # Email
+    for sel in ["input[name='loginfmt']", "input[id='i0116']", "input[type='email']"]:
+        try:
+            page.wait_for_selector(sel, timeout=8000, state="visible")
+            page.fill(sel, EMAIL)
+            print(f"  [OK] Email entered  ({sel})")
+            break
+        except PWTimeout:
+            continue
+    else:
+        print("  [ERR] Email field not found.")
+        page.screenshot(path="login_email_debug.png")
+        return False
+
+    time.sleep(0.6)
+
+    # Next
+    for sel in ["#idSIButton9", "button[type='submit']", "input[type='submit']",
+                "input[value='Next']", "button:has-text('Next')"]:
+        try:
+            page.click(sel, timeout=5000)
+            print(f"  [OK] Next clicked  ({sel})")
+            break
+        except PWTimeout:
+            continue
+
+    time.sleep(3)
+
+    # Password
+    for sel in ["input[name='passwd']", "input[id='i0118']", "input[type='password']"]:
+        try:
+            page.wait_for_selector(sel, timeout=10000, state="visible")
+            page.fill(sel, PASSWORD)
+            print(f"  [OK] Password entered  ({sel})")
+            break
+        except PWTimeout:
+            continue
+    else:
+        print("  [ERR] Password field not found.")
+        page.screenshot(path="login_pwd_debug.png")
+        return False
+
+    time.sleep(0.6)
+
+    # Sign in
+    for sel in ["#idSIButton9", "button[type='submit']", "input[type='submit']",
+                "input[value='Sign in']", "button:has-text('Sign in')"]:
+        try:
+            page.click(sel, timeout=5000)
+            print(f"  [OK] Sign in clicked")
+            break
+        except PWTimeout:
+            continue
+
+    time.sleep(4)
+
+    # Stay signed in prompt
+    for sel in ["#idSIButton9", "input[value='Yes']", "#idBtn_Back"]:
+        try:
+            page.click(sel, timeout=5000)
+            print(f"  [OK] Stay-signed-in prompt handled")
+            time.sleep(2)
+            break
+        except PWTimeout:
+            continue
+
+    # Poll for redirect back to app
+    print("  Waiting for redirect (up to 90s)...")
+    print("  ", end="", flush=True)
+    for i in range(90):
+        time.sleep(1)
+        print(".", end="", flush=True)
+        cur = page.url
+        # Success: back on the app domain
+        if BASE_URL.replace("https://", "").rstrip("/") in cur and "login" not in cur.lower():
+            print(f"\n  [OK] Redirected after {i+1}s → {cur}")
+            return True
+        # Hard failure: Intel bot-block page
+        try:
+            body = page.inner_text("body") or ""
+            if ("Please provide the following details" in body
+                    and "contact administrator" in body.lower()):
+                print(f"\n  [ERR] Intel Azure B2C bot-block detected.")
+                print("        Add cookies to COOKIES_JSON and re-run.")
+                page.screenshot(path="login_blocked.png")
+                return False
+        except Exception:
+            pass
+
+    print()
+    # Final fallback: navigate directly (SAML cookie may already be set)
+    print("  [INFO] Timeout — navigating to app directly...")
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+    time.sleep(4)
+    return BASE_URL.replace("https://", "").rstrip("/") in page.url
+
+
+def run_test():
+    cookies       = parse_cookies(COOKIES_JSON)
+    using_cookies = len(cookies) > 0
+
+    print("=" * 60)
+    print("  ISBC Project Test")
+    print("=" * 60)
+    print(f"  BASE_URL : {BASE_URL}")
+    print(f"  Cookies  : {'✓ ' + str(len(cookies)) + ' loaded' if using_cookies else '✗ None (form login will be attempted)'}")
+
+    if not using_cookies:
+        print("""
+  ⚠  WARNING: No cookies provided.
+     Intel blocks automated logins via Azure B2C.
+     To fix, follow these steps:
+       1. Log in to the portal manually in Chrome
+       2. Install "EditThisCookie" Chrome extension
+       3. Click the extension → Export (📤)
+       4. Paste the JSON into COOKIES_JSON in this file
+       5. Re-run the script
+        """)
+
+    with sync_playwright() as p:
+        print("🚀 Launching browser...")
+
+        browser = p.chromium.launch(
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled",
+                  "--no-sandbox", "--window-size=1440,900"]
+        )
+
+        # Build context — include HTTP Basic Auth credentials if provided
+        context_args = {
+            "viewport":   {"width": 1440, "height": 900},
+            "user_agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/146.0.0.0 Safari/537.36"
+            ),
+        }
+        if HT_USER and HT_PASS:
+            context_args["http_credentials"] = {
+                "username": HT_USER,
+                "password": HT_PASS,
+            }
+        else:
+            print("  [WARN] HT_USER / HT_PASS not set — skipping HTTP Basic Auth.")
+
+        context = browser.new_context(**context_args)
+        page    = context.new_page()
+
+        # ── STEP 1: Open URL ──────────────────────────────────
+        print("\n➡ Opening URL...")
+        page.goto(BASE_URL, timeout=60000)
+        time.sleep(3)
+        print(f"  URL: {page.url}")
+        page.screenshot(path="01_opened.png")
+
+        # ── STEP 2: Click Engagement ──────────────────────────
+        print("➡ Clicking Engagement...")
+        page.wait_for_selector("text=Engagement", timeout=15000)
+        page.click("text=Engagement")
+        time.sleep(2)
+        page.screenshot(path="02_engagement.png")
+
+        # ── STEP 3: Click Submit Offering ─────────────────────
+        print("➡ Clicking Submit an Offering...")
+        page.wait_for_selector("text=Submit an Offering", timeout=15000)
+        page.click("text=Submit an Offering")
+        time.sleep(2)
+        page.screenshot(path="03_submit_offering.png")
+
+        # ── STEP 4: Handle login ──────────────────────────────
+        print("➡ Handling Login...")
+        time.sleep(3)   # wait for potential redirect to login page
+        print(f"  URL after Submit Offering: {page.url}")
+
+        if is_login_page(page):
+            print("  Login page detected.")
+
+            if using_cookies:
+                # ── PRIMARY: inject cookies ───────────────────
+                print("  Injecting session cookies...")
+                inject_cookies_and_reload(page, context, cookies)
+                page.screenshot(path="04a_after_cookie_inject.png")
+
+                if is_login_page(page):
+                    # Cookies didn't work (expired?) — try form login
+                    print("  [WARN] Still on login page after cookie injection.")
+                    print("         Cookies may be expired — trying form login...")
+                    logged_in = do_sso_login_form(page)
+                else:
+                    print("  [OK] ✓ Logged in via cookies!")
+                    logged_in = True
+
+            else:
+                # ── FALLBACK: form login ──────────────────────
+                logged_in = do_sso_login_form(page)
+
+            if not logged_in:
+                print("❌ Login failed. Cannot continue.")
+                page.screenshot(path="04_login_failed.png")
+                browser.close()
+                return
+
+        else:
+            print("  [OK] Already authenticated — no login needed.")
+            logged_in = True
+
+        print(f"  Current URL after login: {page.url}")
+        page.screenshot(path="04_logged_in.png")
+
+        # Navigate back to app if login redirected elsewhere
+        if BASE_URL.replace("https://", "").rstrip("/") not in page.url:
+            print(f"  Navigating back to {BASE_URL}...")
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+            page.screenshot(path="04b_back_at_app.png")
+
+        # ── STEP 5: Click Create a Project ───────────────────
+        print("➡ Clicking Create a Project...")
+        time.sleep(3)   # let page fully render after login
+
+        try:
+            page.wait_for_selector("button:has-text('Create a Project')", timeout=30000)
+            page.click("button:has-text('Create a Project')")
+            print("  [OK] 'Create a Project' clicked.")
+        except PWTimeout:
+            print("  [WARN] 'Create a Project' button not found via primary selector.")
+            print("         Trying alternative selectors...")
+
+            # Try alternatives
+            alternatives = [
+                "text=Create a Project",
+                "a:has-text('Create a Project')",
+                "[aria-label*='Create a Project']",
+                "xpath=//button[contains(.,'Create a Project')]",
+                "xpath=//a[contains(.,'Create a Project')]",
+            ]
+            clicked = False
+            for sel in alternatives:
+                try:
+                    page.wait_for_selector(sel, timeout=5000, state="visible")
+                    page.click(sel)
+                    print(f"  [OK] Clicked via: {sel}")
+                    clicked = True
+                    break
+                except PWTimeout:
+                    continue
+
+            if not clicked:
+                # Dump visible buttons to help debug
+                print("  [DEBUG] Visible buttons on current page:")
+                try:
+                    btns = page.query_selector_all("button, a[role='button']")
+                    for b in btns[:25]:
+                        try:
+                            t = b.inner_text().strip()
+                            if t:
+                                print(f"    • '{t}'")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                page.screenshot(path="05_create_project_debug.png")
+                print("  [📷] 05_create_project_debug.png")
+
+        time.sleep(2)
+        page.screenshot(path="05_create_project.png")
+        print("  [📷] 05_create_project.png")
+
+        # ── STEP 6: Validate Project Page Sections ────────────
+        print("➡ Validating Project Page Sections...")
+
+        page.wait_for_selector("text=Overview", timeout=20000)
+
+        sections = [
+            "Overview",
+            "Details",
+            "Additional Info",
+            "Application Steps",
+            "Media",
+        ]
+
+        all_found = True
+        for section in sections:
+            try:
+                page.wait_for_selector(f"text={section}", timeout=20000)
+                print(f"  ✅ Found section: {section}")
+            except PWTimeout:
+                print(f"  ❌ Section NOT found: {section}")
+                all_found = False
+
+        # Screenshot
+        page.screenshot(path="project_page.png")
+        print("  [📷] project_page.png")
+
+        if all_found:
+            print("\n🎉 SUCCESS: Project page loaded with all sections!")
+        else:
+            print("\n⚠  PARTIAL: Some sections were not found — check screenshots.")
+
+        browser.close()
+        print("\nBrowser closed. Done.")
+
+
+if __name__ == "__main__":
+    run_test()
