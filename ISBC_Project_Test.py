@@ -7,12 +7,19 @@ Based on exact UI screenshots provided.
 import sys
 import os
 import json
+import re
 import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 
 BASE_URL  = os.getenv("BASE_URL")   # e.g. https://builders-qa.onsumaye.com
@@ -20,6 +27,12 @@ EMAIL     = os.getenv("EMAIL")
 PASSWORD  = os.getenv("PASSWORD")
 HT_USER   = os.getenv("HT_USER")
 HT_PASS   = os.getenv("HT_PASS")
+AUTH_PATH = os.path.join(BASE_DIR, "auth.json")
+REGISTRATION_URL = os.getenv(
+    "REGISTRATION_URL",
+    "https://builders-qa.onsumaye.com/ecosystem-engagement/"
+    "solutions-challenge/ai-edge/registration",
+)
 
 # ── Cookies (from your EditThisCookie export) ─────────────────
 COOKIES_JSON = """
@@ -395,13 +408,16 @@ def try_click(page, selectors, label, timeout=12000):
         except Exception:
             continue
     print(f"  [WARN] Could not click '{label}' — dumping buttons:")
-    for b in page.query_selector_all("button")[:20]:
-        try:
-            t = b.inner_text().strip()
-            if t:
-                print(f"    • '{t}'")
-        except Exception:
-            pass
+    try:
+        for b in page.query_selector_all("button")[:20]:
+            try:
+                t = b.inner_text().strip()
+                if t:
+                    print(f"    • '{t}'")
+            except Exception:
+                pass
+    except Exception:
+        pass
     shot(page, f"dbg_{label[:25].replace(' ','_')}")
     return False
 
@@ -554,10 +570,433 @@ def is_login_page(page) -> bool:
     )
 
 
+def is_on_hub(page) -> bool:
+    """True when on the AI Edge area after SSO (registration or profile hub)."""
+    if is_login_page(page):
+        return False
+    url = page.url.lower()
+    return (
+        "ai-edge/registration" in url
+        or "ai-edge/profile" in url
+        or ("solutions-challenge/ai-edge" in url and "onsumaye.com" in url)
+    )
+
+
+def wait_for_hub_content(page, timeout_sec=90) -> bool:
+    """Wait until '+ Create a Project' is visible (hub can take 60+ seconds)."""
+    print(f"  Waiting for '+ Create a Project' (up to {timeout_sec}s)...", flush=True)
+    shell_ready = False
+    for i in range(timeout_sec):
+        time.sleep(1)
+        try:
+            if page.locator("text=Create a Project").count() > 0:
+                print(f"  [OK] '+ Create a Project' ready after {i + 1}s", flush=True)
+                return True
+            if not shell_ready and (
+                page.locator("text=Projects").count() > 0
+                or page.locator("text=Intake").count() > 0
+            ):
+                shell_ready = True
+                print(f"  [INFO] Hub shell loaded ({i + 1}s), waiting for Create button...", flush=True)
+        except Exception:
+            pass
+        if (i + 1) % 15 == 0:
+            print(f"  ... still loading ({i + 1}s)", flush=True)
+    print("  [WARN] '+ Create a Project' did not appear in time.", flush=True)
+    return False
+
+
+PROJECT_SECTIONS = [
+    "Overview",
+    "Details",
+    "Additional Info",
+    "Application Steps",
+    "Media",
+]
+
+
+def count_visible_sections(page) -> list:
+    """Return sidebar section names currently visible on the project form."""
+    found = []
+    for sec in PROJECT_SECTIONS:
+        try:
+            loc = page.locator(
+                f"xpath=//*[contains(@class,'sidebar') or contains(@class,'step') "
+                f"or contains(@class,'progress') or self::aside]"
+                f"//*[normalize-space()='{sec}']"
+            )
+            if loc.count() == 0:
+                loc = page.get_by_text(sec, exact=True)
+            if loc.count() > 0:
+                found.append(sec)
+        except Exception:
+            pass
+    return found
+
+
+def wait_for_all_sections(page, timeout_sec=120) -> bool:
+    """Wait until all project form sections appear in the sidebar."""
+    print(f"  Waiting for all sections (up to {timeout_sec}s)...", flush=True)
+    for i in range(timeout_sec):
+        time.sleep(1)
+        found = count_visible_sections(page)
+        if len(found) == len(PROJECT_SECTIONS):
+            print(f"  [OK] All sections visible after {i + 1}s:", flush=True)
+            for sec in PROJECT_SECTIONS:
+                print(f"    ✅ {sec}")
+            return True
+        if (i + 1) % 15 == 0:
+            print(f"  ... {len(found)}/{len(PROJECT_SECTIONS)} sections at {i + 1}s: {found}",
+                  flush=True)
+    found = count_visible_sections(page)
+    print(f"  [WARN] Missing sections: {set(PROJECT_SECTIONS) - set(found)}", flush=True)
+    return False
+
+
+def open_new_project_from_list(page) -> bool:
+    """If still on listing after Create, open the newest project row."""
+    print("  [INFO] Opening project from listing...")
+    for sel in [
+        "xpath=(//a[contains(@href,'/projects/') and not(contains(@href,'projects?'))])[1]",
+        "xpath=(//table//tbody//tr[1]//a)[1]",
+        "xpath=(//div[contains(@class,'project')]//a)[1]",
+        "xpath=(//a[contains(.,'AI Edge')])[1]",
+    ]:
+        try:
+            el = page.wait_for_selector(sel, timeout=8000, state="visible")
+            el.click()
+            time.sleep(3)
+            print(f"  [OK] Opened project link")
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def is_on_project_editor(page) -> bool:
+    """True when the project create/edit form is open with sidebar sections."""
+    url = page.url.lower()
+    if re.search(r"/projects/\d+", url):
+        return len(count_visible_sections(page)) >= 3
+    if "/create" in url or "/edit" in url:
+        return len(count_visible_sections(page)) >= 3
+    return len(count_visible_sections(page)) >= 4
+
+
+def wait_for_project_editor(page, timeout_sec=90) -> bool:
+    return wait_for_all_sections(page, timeout_sec=timeout_sec)
+
+
+def click_create_project(page) -> bool:
+    """Click '+ Create a Project' and wait until all form sections load."""
+    selectors = [
+        "xpath=//button[contains(normalize-space(),'Create a Project')]",
+        "xpath=//a[contains(normalize-space(),'Create a Project')]",
+        "xpath=//*[contains(normalize-space(),'+ Create a Project')]",
+        "text=+ Create a Project",
+        "text=Create a Project",
+    ]
+    for attempt in range(1, 4):
+        print(f"\n➡ Clicking '+ Create a Project' (attempt {attempt}/3)...")
+        clicked = False
+        for sel in selectors:
+            try:
+                el = page.wait_for_selector(sel, timeout=15000, state="visible")
+                el.scroll_into_view_if_needed()
+                time.sleep(0.5)
+                try:
+                    with page.expect_navigation(timeout=60000, wait_until="load"):
+                        el.click()
+                except Exception:
+                    el.click()
+                clicked = True
+                print("  [OK] Clicked '+ Create a Project'")
+                break
+            except Exception:
+                continue
+        if not clicked:
+            for role in ("button", "link"):
+                try:
+                    loc = page.get_by_role(role, name="Create a Project").first
+                    loc.scroll_into_view_if_needed()
+                    try:
+                        with page.expect_navigation(timeout=60000, wait_until="load"):
+                            loc.click(timeout=10000)
+                    except Exception:
+                        loc.click(timeout=10000)
+                    clicked = True
+                    print(f"  [OK] Clicked via role={role}")
+                    break
+                except Exception:
+                    pass
+
+        if not clicked:
+            print(f"  [WARN] Could not click Create on attempt {attempt}")
+            time.sleep(10)
+            continue
+
+        time.sleep(3)
+        print(f"  URL: {page.url}")
+
+        if wait_for_all_sections(page, timeout_sec=120):
+            shot(page, "04_create_project")
+            return True
+
+        if open_new_project_from_list(page):
+            if wait_for_all_sections(page, timeout_sec=60):
+                shot(page, "04_create_project")
+                return True
+
+        print(f"  [WARN] Sections not fully loaded after attempt {attempt} — retrying...")
+        time.sleep(10)
+        wait_for_hub_content(page, timeout_sec=20)
+
+    shot(page, "dbg_+_Create_a_Project")
+    return False
+
+
+def has_create_project_button(page) -> bool:
+    for sel in [
+        "xpath=//a[contains(.,'Create a Project')]",
+        "xpath=//button[contains(.,'Create a Project')]",
+        "text=Create a Project",
+        "text=+ Create a Project",
+    ]:
+        try:
+            page.wait_for_selector(sel, timeout=2000, state="visible")
+            return True
+        except PWTimeout:
+            continue
+    return False
+
+
+def open_project_hub(page) -> bool:
+    """Wait for hub shell, ensure Projects tab, then wait for Create button."""
+    if wait_for_hub_content(page, timeout_sec=90):
+        shot(page, "02b_registration_hub")
+        return True
+
+    if "ai-edge/profile" in page.url.lower():
+        print("\n➡ Hub still blank — opening registration URL...")
+        page.goto(REGISTRATION_URL, wait_until="load", timeout=90000)
+
+    if wait_for_hub_content(page, timeout_sec=60):
+        shot(page, "02b_registration_hub")
+        return True
+
+    print("  [INFO] Clicking 'Projects' sub-menu...")
+    try_click(page, [
+        "xpath=//nav//a[normalize-space()='Projects']",
+        "xpath=//a[normalize-space()='Projects']",
+        "text=Projects",
+    ], "Projects (sub-menu)", timeout=15000)
+    time.sleep(5)
+    shot(page, "02c_projects_tab")
+
+    return wait_for_hub_content(page, timeout_sec=45)
+
+
+def is_b2c_blocked(page) -> bool:
+    try:
+        body = page.inner_text("body") or ""
+        low = body.lower()
+        return "not allowed" in low and "contact administrator" in low
+    except Exception:
+        return False
+
+
+def try_sso_login(page) -> bool:
+    """Automated Intel SSO using .env credentials (same as PyCharm flow)."""
+    if not EMAIL or not PASSWORD:
+        print("  [WARN] EMAIL/PASSWORD missing in .env")
+        return False
+    if not is_login_page(page):
+        return True
+
+    print("  Logging in with .env credentials...")
+    print(f"  Email: {EMAIL}")
+
+    email_sels = [
+        "input[placeholder='Email']", "input[type='email']",
+        "input[name='loginfmt']", "#i0116",
+    ]
+    pwd_sels = [
+        "input[placeholder='Password']", "input[type='password']",
+        "input[name='passwd']", "#i0118",
+    ]
+
+    for sel in email_sels:
+        try:
+            page.wait_for_selector(sel, timeout=10000, state="visible")
+            page.click(sel)
+            time.sleep(0.4)
+            page.fill(sel, "")
+            page.locator(sel).press_sequentially(EMAIL, delay=60)
+            print("  [OK] Email entered")
+            break
+        except PWTimeout:
+            continue
+    else:
+        print("  [ERR] Email field not found")
+        return False
+
+    time.sleep(0.8)
+    for sel in ["button:has-text('Next')", "#idSIButton9", "input[value='Next']"]:
+        try:
+            page.click(sel, timeout=6000)
+            print("  [OK] Next clicked")
+            break
+        except PWTimeout:
+            continue
+
+    time.sleep(2.5)
+    shot(page, "login_after_email")
+
+    for sel in pwd_sels:
+        try:
+            page.wait_for_selector(sel, timeout=15000, state="visible")
+            page.click(sel)
+            time.sleep(0.4)
+            page.fill(sel, "")
+            page.locator(sel).press_sequentially(PASSWORD, delay=60)
+            print("  [OK] Password entered")
+            break
+        except PWTimeout:
+            continue
+    else:
+        print("  [ERR] Password field not found")
+        return False
+
+    time.sleep(0.8)
+    for sel in [
+        "button:has-text('Sign In')", "button:has-text('Sign in')",
+        "#idSIButton9", "input[value='Sign in']",
+    ]:
+        try:
+            page.click(sel, timeout=6000)
+            print("  [OK] Sign In clicked")
+            break
+        except PWTimeout:
+            continue
+
+    time.sleep(2)
+    for sel in ["button:has-text('Yes')", "#idSIButton9", "input[value='Yes']", "#idBtn_Back"]:
+        try:
+            page.click(sel, timeout=3000)
+            print("  [OK] Stay-signed-in prompt handled")
+            break
+        except PWTimeout:
+            pass
+
+    print("  Waiting for redirect after login", end="", flush=True)
+    for _ in range(90):
+        time.sleep(1)
+        print(".", end="", flush=True)
+        if is_b2c_blocked(page):
+            print("\n  [ERR] Intel blocked login — try manual login or contact admin.")
+            shot(page, "login_blocked")
+            return False
+        if "onsumaye.com" in page.url.lower() and not is_login_page(page):
+            print(f"\n  [OK] Redirected → {page.url}")
+            shot(page, "login_after_signin")
+            return True
+
+    print("\n  [WARN] Login redirect timed out.")
+    shot(page, "login_timeout")
+    return False
+
+
+def is_ai_edge_logged_in(page) -> bool:
+    """True when past Intel SSO and on the AI Edge portal (profile/registration/projects)."""
+    if is_login_page(page):
+        return False
+    url = page.url.lower()
+    return (
+        "solutions-challenge/ai-edge" in url
+        or ("ecosystem-engagement" in url and "ai-edge" in url)
+    )
+
+
+def wait_for_ai_edge(page, timeout_sec=120) -> bool:
+    """Poll until SSO completes and AI Edge URL loads."""
+    print(f"  Waiting for AI Edge portal (up to {timeout_sec}s)...", end="", flush=True)
+    for i in range(timeout_sec):
+        time.sleep(1)
+        if is_b2c_blocked(page):
+            print("\n  [ERR] Intel blocked this account.")
+            shot(page, "login_blocked")
+            return False
+        if is_ai_edge_logged_in(page):
+            print(f"\n  [OK] AI Edge portal ready after {i + 1}s → {page.url}")
+            return True
+        if (i + 1) % 20 == 0 and is_login_page(page):
+            print(f"\n  [INFO] Still on SSO ({i + 1}s) — retrying automated login...")
+            try_sso_login(page)
+        print(".", end="", flush=True)
+    print("\n  [WARN] Timed out waiting for AI Edge portal.")
+    return False
+
+
+def ensure_hub_access(page, context) -> bool:
+    """Log in via Intel SSO and reach the AI Edge project area."""
+    print(f"  Checking access — URL: {page.url[:100]}...")
+
+    if is_ai_edge_logged_in(page):
+        print(f"  [OK] Already on AI Edge portal")
+        try:
+            context.storage_state(path=AUTH_PATH)
+            print("  [OK] Session saved to auth.json")
+        except Exception as e:
+            print(f"  [WARN] Could not save auth.json: {e}")
+        return True
+
+    if is_login_page(page):
+        print("\n➡ Intel SSO login required...")
+        try_sso_login(page)
+        if not is_ai_edge_logged_in(page):
+            print("  [INFO] Retrying SSO login...")
+            time.sleep(3)
+            try_sso_login(page)
+        if not wait_for_ai_edge(page, timeout_sec=120):
+            if is_login_page(page):
+                shot(page, "login_blocked")
+                print(f"  [ERR] SSO login failed. URL: {page.url[:120]}")
+                return False
+
+    if not is_ai_edge_logged_in(page) and not is_login_page(page):
+        print("  [INFO] Navigating to AI Edge hub...")
+        try:
+            page.goto(REGISTRATION_URL, wait_until="load", timeout=90000)
+        except Exception:
+            page.goto(REGISTRATION_URL, wait_until="domcontentloaded", timeout=90000)
+        time.sleep(5)
+        if is_login_page(page):
+            print("  [INFO] SSO required after navigation...")
+            try_sso_login(page)
+            if not wait_for_ai_edge(page, timeout_sec=120):
+                shot(page, "login_blocked")
+                return False
+
+    if not is_ai_edge_logged_in(page):
+        if not wait_for_ai_edge(page, timeout_sec=60):
+            shot(page, "login_wrong_page")
+            print(f"  [ERR] Could not reach AI Edge portal. URL: {page.url[:120]}")
+            return False
+
+    try:
+        context.storage_state(path=AUTH_PATH)
+        print("  [OK] Session saved to auth.json")
+    except Exception as e:
+        print(f"  [WARN] Could not save auth.json: {e}")
+
+    print(f"  [OK] Hub access OK → {page.url[:100]}...")
+    return True
+
+
 # ─────────────────────────────────────────────────────────────
-#  LOGIN
+#  LOGIN (legacy — kept for reference, not used)
 # ─────────────────────────────────────────────────────────────
-def do_login(page):
+def _do_login_automated_unused(page):
     """
     From screenshots Image 2 & 3:
       Page 1: single Email field + Next button
@@ -666,24 +1105,34 @@ def do_login(page):
 #  MAIN TEST
 # ─────────────────────────────────────────────────────────────
 def run_test():
-    cookies = parse_cookies(COOKIES_JSON)
+    use_auth = os.path.isfile(AUTH_PATH)
 
     print("=" * 62)
     print("  ISBC Project Test — End-to-End Create → Publish")
     print("=" * 62)
     print(f"  BASE_URL : {BASE_URL}")
     print(f"  EMAIL    : {EMAIL}")
-    print(f"  Cookies  : {len(cookies)} loaded")
+    print(f"  Session  : {'auth.json' if use_auth else 'none (manual login required)'}")
+    print(f"  Hub URL  : {REGISTRATION_URL}")
     print(f"  Project  : {PROJECT_NAME}")
 
     with sync_playwright() as p:
         print("\n🚀 Launching browser...")
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled",
-                  "--no-sandbox", "--window-size=1440,900",
-                  "--start-maximized"]
-        )
+        launch_args = {
+            "headless": False,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--window-size=1440,900",
+                "--start-maximized",
+            ],
+        }
+        try:
+            browser = p.chromium.launch(channel="chrome", **launch_args)
+            print("  [OK] Using installed Google Chrome")
+        except Exception:
+            browser = p.chromium.launch(**launch_args)
+            print("  [INFO] Using Playwright Chromium")
         ctx_args = {
             "viewport":   {"width": 1440, "height": 900},
             "user_agent": (
@@ -696,27 +1145,26 @@ def run_test():
             ctx_args["http_credentials"] = {"username": HT_USER, "password": HT_PASS}
             print(f"  HTTP Auth: {HT_USER}")
 
-        context = browser.new_context(**ctx_args)
-
-        # Pre-inject cookies before first navigation
-        if cookies:
-            try:
-                context.add_cookies(cookies)
-                print(f"  [OK] Pre-injected {len(cookies)} cookies")
-            except Exception as e:
-                print(f"  [WARN] Cookie pre-inject: {e}")
+        if use_auth:
+            ctx_args["storage_state"] = AUTH_PATH
+            context = browser.new_context(**ctx_args)
+            print("  [OK] Loaded saved session from auth.json")
+        else:
+            context = browser.new_context(**ctx_args)
+            print("  [WARN] No auth.json — SSO login will run from .env")
 
         page = context.new_page()
+        page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+        )
 
-        # ── Open portal ───────────────────────────────────────
+        # ── Open portal → ENGAGEMENT → Submit an Offering (PyCharm flow) ──
         print(f"\n➡ Opening {BASE_URL} ...")
         page.goto(BASE_URL, timeout=60000, wait_until="domcontentloaded")
         time.sleep(3)
         shot(page, "00_opened")
         print(f"  URL: {page.url}")
 
-        # ── Click ENGAGEMENT in top nav ───────────────────────
-        # Image 1 shows "ENGAGEMENT" in the main nav bar
         print("\n➡ Clicking ENGAGEMENT in top nav...")
         try_click(page, [
             "xpath=//nav//a[normalize-space()='ENGAGEMENT']",
@@ -728,8 +1176,6 @@ def run_test():
         time.sleep(2)
         shot(page, "01_engagement_menu")
 
-        # ── Click Submit an Offering ──────────────────────────
-        # Image 1 shows "Submit an Offering" under "Industry Solution Builders Challenge"
         print("\n➡ Clicking 'Submit an Offering'...")
         try_click(page, [
             "xpath=//a[normalize-space()='Submit an Offering']",
@@ -740,48 +1186,26 @@ def run_test():
         shot(page, "02_submit_offering")
         print(f"  URL: {page.url}")
 
-        # ── Handle login if redirected ────────────────────────
-        if is_login_page(page):
-            print("\n➡ Login required...")
-            if not do_login(page):
-                print("❌ Login failed — cannot continue.")
-                browser.close()
-                return
-        else:
-            print("  [OK] Already authenticated.")
+        if not ensure_hub_access(page, context):
+            print("❌ Could not reach AI Edge portal — cannot continue.")
+            print("   Tip: delete auth.json and re-run, or check EMAIL/PASSWORD in .env")
+            browser.close()
+            return
 
         shot(page, "03_after_login")
         print(f"  URL: {page.url}")
 
-        # Navigate back if needed
-        if "onsumaye.com" not in page.url:
-            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
-            time.sleep(3)
+        if not open_project_hub(page):
+            print("❌ Project hub did not finish loading.")
+            browser.close()
+            return
 
-        # ── Click + Create a Project ──────────────────────────
-        # Image 4: shows "+ Create a Project" button (blue, top right)
-        print("\n➡ Clicking '+ Create a Project'...")
-        time.sleep(3)
-        try_click(page, [
-            "xpath=//a[contains(.,'Create a Project')]",
-            "xpath=//button[contains(.,'Create a Project')]",
-            "text=Create a Project",
-            "text=+ Create a Project",
-            "[href*='create']",
-        ], "+ Create a Project", timeout=30000)
-        time.sleep(4)
-        shot(page, "04_create_project")
-        print(f"  URL: {page.url}")
+        if not click_create_project(page):
+            print("❌ Could not open project form with all sections — aborting.")
+            browser.close()
+            return
 
-        # ── Validate sections in left sidebar ─────────────────
-        # Image 5 shows left sidebar: Overview(1), Details(2), Additional Info(3)
-        print("\n➡ Validating sidebar sections...")
-        for sec in ["Overview", "Details", "Additional Info", "Application Steps", "Media"]:
-            try:
-                page.wait_for_selector(f"text={sec}", timeout=8000)
-                print(f"  ✅ Section visible: {sec}")
-            except PWTimeout:
-                print(f"  ⚠  Section not found: {sec}")
+        shot(page, "04b_all_sections_visible")
 
         # ══════════════════════════════════════════════════════
         # STEP 1 — Click Edit (on Overview section)
@@ -1025,16 +1449,19 @@ def run_test():
         time.sleep(0.3)
 
         # Q12: Success Stories — rich text editor (Image 7 bottom, has toolbar)
-        page.evaluate(f"""
-            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-            var last = eds[eds.length - 1];
-            if(last) {{
-                last.focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('insertText', false, {json.dumps(SUCCESS_STORY)});
-            }}
-        """)
-        print("  [OK] Q12: Success Story filled")
+        try:
+            page.evaluate(f"""
+                var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
+                var last = eds[eds.length - 1];
+                if(last) {{
+                    last.focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('insertText', false, {json.dumps(SUCCESS_STORY)});
+                }}
+            """)
+            print("  [OK] Q12: Success Story filled")
+        except Exception as e:
+            print(f"  [WARN] Q12 fill failed: {e}")
 
         shot(page, "S04_details_filled")
 
