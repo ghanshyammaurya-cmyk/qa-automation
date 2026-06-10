@@ -352,7 +352,22 @@ ADDITIONAL_INFO  = ("Our platform is built on Intel OpenVINO and integrates with
 STEP_TITLE       = "Deploy the Edge AI Runtime"
 STEP_DESC        = ("Install Intel OpenVINO runtime. Configure the inference pipeline "
                     "using the provided Docker Compose templates. Connect to OPC-UA source.")
-ODM_TEXT         = "N/A"
+USE_CASES_TEXT    = ("Predictive maintenance, computer vision quality inspection, "
+                     "and real-time anomaly detection on the factory floor.")
+OPEN_SOFTWARE_TEXT = (
+    "Our application uses OpenVINO Toolkit, oneAPI, Intel Distribution of OpenVINO, "
+    "Open Edge Platform, and Intel OpenDL Streamer — ingredients from the "
+    "Open Software Platform for edge AI inference and deployment."
+)
+Q7_NO_REASON      = ("Pilot deployments with select customers; full commercial "
+                     "availability planned in Q3 2026.")
+Q10_YES_PARTNERS  = ("Contracted distribution agreements with TD SYNNEX and "
+                     "Ingram Micro in North America and Europe.")
+DIST_PARTNER_TEXT = Q10_YES_PARTNERS
+ODM_TEXT         = (
+    "Dell Technologies, Advantech, Kontron, and Super Micro Computer."
+)
+Q9_VERIFY_MARKER = "Dell Technologies"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -393,20 +408,41 @@ def shot(page, name):
         pass
 
 
+def _visible_locators(page, selector):
+    """Yield locators for every visible match (avoids hidden duplicate nodes)."""
+    try:
+        for el in page.locator(selector).all():
+            try:
+                if el.is_visible():
+                    yield el
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 def try_click(page, selectors, label, timeout=12000):
-    """Try each selector and click the first that works."""
+    """Try each selector and click the first visible match."""
     if isinstance(selectors, str):
         selectors = [selectors]
-    for sel in selectors:
-        try:
-            el = page.wait_for_selector(sel, timeout=timeout, state="visible")
-            el.scroll_into_view_if_needed()
-            time.sleep(0.3)
-            el.click()
-            print(f"  [OK] Clicked '{label}'")
-            return True
-        except Exception:
-            continue
+    deadline = time.time() + (timeout / 1000)
+    while time.time() < deadline:
+        for sel in selectors:
+            for el in _visible_locators(page, sel):
+                try:
+                    el.scroll_into_view_if_needed()
+                    time.sleep(0.2)
+                    el.click(timeout=5000)
+                    print(f"  [OK] Clicked '{label}'")
+                    return True
+                except Exception:
+                    try:
+                        el.click(force=True, timeout=3000)
+                        print(f"  [OK] Clicked '{label}' (force)")
+                        return True
+                    except Exception:
+                        continue
+        time.sleep(0.4)
     print(f"  [WARN] Could not click '{label}' — dumping buttons:")
     try:
         for b in page.query_selector_all("button")[:20]:
@@ -422,21 +458,25 @@ def try_click(page, selectors, label, timeout=12000):
     return False
 
 
-def try_fill(page, selectors, value, label, timeout=10000):
+def try_fill(page, selectors, value, label, timeout=10000, silent=False):
     """Fill a plain text input or textarea."""
     if isinstance(selectors, str):
         selectors = [selectors]
-    for sel in selectors:
-        try:
-            el = page.wait_for_selector(sel, timeout=timeout, state="visible")
-            el.scroll_into_view_if_needed()
-            el.click()
-            el.fill(value)
-            print(f"  [OK] Filled '{label}'")
-            return True
-        except Exception:
-            continue
-    print(f"  [WARN] Could not fill '{label}'")
+    deadline = time.time() + (timeout / 1000)
+    while time.time() < deadline:
+        for sel in selectors:
+            for el in _visible_locators(page, sel):
+                try:
+                    el.scroll_into_view_if_needed()
+                    el.click()
+                    el.fill(value)
+                    print(f"  [OK] Filled '{label}'")
+                    return True
+                except Exception:
+                    continue
+        time.sleep(0.3)
+    if not silent:
+        print(f"  [WARN] Could not fill '{label}'")
     return False
 
 
@@ -491,73 +531,723 @@ def select_from_dropdown(page, dropdown_trigger_sels, option_text, label, timeou
         dropdown_trigger_sels = [dropdown_trigger_sels]
 
     for trig in dropdown_trigger_sels:
-        try:
-            el = page.wait_for_selector(trig, timeout=timeout, state="visible")
-            el.scroll_into_view_if_needed()
-            el.click()
-            time.sleep(0.6)
-            # Now pick the option
-            for opt_sel in [
-                f"text={option_text}",
-                f"[role='option']:has-text('{option_text}')",
-                f"li:has-text('{option_text}')",
-                f"div[class*='option']:has-text('{option_text}')",
-                f"span:has-text('{option_text}')",
-            ]:
+        for el in _visible_locators(page, trig):
+            try:
+                el.scroll_into_view_if_needed()
+                el.click()
+                time.sleep(0.7)
+                opt_patterns = [
+                    f"[role='option']:has-text('{option_text}')",
+                    f"li:has-text('{option_text}')",
+                    f"div[class*='option']:has-text('{option_text}')",
+                    f"span:has-text('{option_text}')",
+                    f"text={option_text}",
+                ]
+                if len(option_text) > 4:
+                    short = option_text.split()[-1] if " " in option_text else option_text[:6]
+                    opt_patterns.append(f"[role='option']:has-text('{short}')")
+                for opt_sel in opt_patterns:
+                    for opt in _visible_locators(page, opt_sel):
+                        try:
+                            opt.scroll_into_view_if_needed()
+                            opt.click()
+                            print(f"  [OK] Selected '{option_text}' in '{label}'")
+                            time.sleep(0.3)
+                            page.keyboard.press("Escape")
+                            time.sleep(0.2)
+                            return True
+                        except Exception:
+                            continue
                 try:
-                    page.wait_for_selector(opt_sel, timeout=4000, state="visible").click()
-                    print(f"  [OK] Selected '{option_text}' in '{label}'")
-                    time.sleep(0.3)
-                    # Close dropdown
+                    page.get_by_text(option_text, exact=False).last.click(timeout=3000)
+                    print(f"  [OK] Selected '{option_text}' in '{label}' (text match)")
                     page.keyboard.press("Escape")
-                    time.sleep(0.2)
                     return True
                 except Exception:
-                    continue
-        except Exception:
-            continue
+                    pass
+                page.keyboard.press("Escape")
+            except Exception:
+                continue
     print(f"  [WARN] Could not select '{option_text}' in '{label}'")
     return False
 
 
-def click_radio_yn(page, q_text_fragment, answer, label):
-    """
-    Select Yes or No radio button for a question.
-    From screenshots Q6/Q7/Q10 use Yes/No radio buttons.
-    """
-    selectors = [
-        # Try: find a label containing the answer near the question
-        f"xpath=//*[contains(text(),'{q_text_fragment}')]/following::label[normalize-space()='{answer}'][1]",
-        f"xpath=//*[contains(text(),'{q_text_fragment}')]/following::input[@type='radio'][@value='{answer}'][1]",
-        f"xpath=//*[contains(text(),'{q_text_fragment}')]/following::span[normalize-space()='{answer}'][1]",
+def wait_for_section_view(page, section_name, timeout_sec=15):
+    """Wait until the named section heading is visible in the form body."""
+    markers = [section_name, "Overall Progress"]
+    for _ in range(timeout_sec):
+        for m in markers:
+            try:
+                if page.locator(f"text={m}").first.is_visible():
+                    return True
+            except Exception:
+                pass
+        time.sleep(1)
+    return False
+
+
+def click_section_edit(page, section_name=""):
+    """Click the visible Edit control for the active intake section."""
+    if section_name:
+        wait_for_section_view(page, section_name)
+        time.sleep(0.8)
+    sels = [
+        "xpath=//*[contains(.,'Overall Progress')]/following::button[contains(.,'Edit') and not(contains(.,'Project'))][1]",
+        "xpath=//*[contains(.,'Overall Progress')]/following::a[contains(.,'Edit') and not(contains(.,'Project'))][1]",
+        "xpath=//*[contains(.,'Please do not post any confidential')]/following::button[contains(.,'Edit')][1]",
+        "xpath=//*[contains(.,'Please do not post any confidential')]/following::a[contains(.,'Edit')][1]",
+        "button:has-text('Edit'):not(:has-text('Project'))",
+        "a:has-text('Edit'):not(:has-text('Project'))",
+        "[title='Edit']",
+        "[aria-label='Edit']",
     ]
-    for sel in selectors:
-        try:
-            el = page.wait_for_selector(sel, timeout=6000, state="visible")
-            el.scroll_into_view_if_needed()
-            el.click()
-            print(f"  [OK] Radio '{answer}' for '{label}'")
+    return try_click(page, sels, f"Edit ({section_name or 'section'})", timeout=15000)
+
+
+def fill_plain_text_only(page, question_fragment, value, label):
+    """Fill a plain input/textarea only (no rich-text editor)."""
+    sels = [
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::textarea[not(@disabled)][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::input[@type='text'][not(@disabled)][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/ancestor::div[contains(@class,'question') or contains(@class,'field') or contains(@class,'form-group')][1]//textarea[1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/ancestor::div[contains(@class,'question') or contains(@class,'field') or contains(@class,'form-group')][1]//input[@type='text'][1]",
+        f"xpath=//label[contains(.,'{question_fragment}')]/following::textarea[1]",
+        f"xpath=//label[contains(.,'{question_fragment}')]/following::input[@type='text'][1]",
+    ]
+    return try_fill(page, sels, value, label)
+
+
+def fill_rich_text_near_question(page, question_fragment, value, label):
+    """Fill the rich-text / Quill editor that belongs to a specific question."""
+    try:
+        page.locator(f"text={question_fragment}").first.scroll_into_view_if_needed()
+    except Exception:
+        pass
+    time.sleep(0.4)
+
+    block = _question_block_xpath(question_fragment)
+    editor_sels = [
+        f"xpath={block}//div[contains(@class,'ql-editor')]",
+        f"xpath={block}//div[contains(@class,'ql-container')]//*[@contenteditable='true']",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::div[contains(@class,'ql-editor')][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::div[contains(@class,'ql-container')][1]//*[@contenteditable='true']",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::*[@contenteditable='true'][1]",
+    ]
+    for sel in editor_sels:
+        for el in _visible_locators(page, sel):
+            try:
+                el.scroll_into_view_if_needed()
+                el.click()
+                time.sleep(0.2)
+                page.keyboard.press("Control+a")
+                page.keyboard.type(value)
+                page.keyboard.press("Tab")
+                print(f"  [OK] Filled '{label}' (rich text editor)")
+                time.sleep(0.6)
+                return True
+            except Exception:
+                continue
+
+    try:
+        filled = page.evaluate(
+            """([frag, text]) => {
+                const anchor = [...document.querySelectorAll('*')].find(
+                    n => n.textContent && n.textContent.includes(frag)
+                );
+                if (!anchor) return false;
+                let root = anchor;
+                for (let i = 0; i < 10 && root; i++) {
+                    const ed = root.querySelector('.ql-editor, [contenteditable="true"]');
+                    if (ed) {
+                        ed.focus();
+                        ed.textContent = text;
+                        ed.dispatchEvent(new Event('input', { bubbles: true }));
+                        ed.dispatchEvent(new Event('change', { bubbles: true }));
+                        ed.dispatchEvent(new Event('blur', { bubbles: true }));
+                        return true;
+                    }
+                    root = root.parentElement;
+                }
+                return false;
+            }""",
+            [question_fragment, value],
+        )
+        if filled:
+            print(f"  [OK] Filled '{label}' (rich text editor via JS)")
+            time.sleep(0.6)
             return True
+    except Exception:
+        pass
+
+    print(f"  [WARN] Could not fill '{label}' in rich text editor")
+    return False
+
+
+# JS helper — locate the input between Q9 and Q10 headings in document order.
+_JS_FIND_Q9_FIELD = """
+() => {
+    const isQHeading = (t, n) => t && new RegExp('^Q' + n + '\\\\s*:', 'i').test(t.trim()) && t.length < 400;
+    const isInput = (el) => el.matches(
+        'textarea:not([disabled]), input[type="text"]:not([disabled]), ' +
+        '.ql-editor, [contenteditable="true"]'
+    ) && el.offsetParent !== null;
+
+    let zone = 'before';
+    const q9fields = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    while (walker.nextNode()) {
+        const el = walker.currentNode;
+        const t = (el.innerText || '').trim();
+        if (isQHeading(t, 9)) { zone = 'q9'; continue; }
+        if (isQHeading(t, 10)) { zone = 'after'; continue; }
+        if (zone === 'q9' && isInput(el)) q9fields.push(el);
+    }
+    if (q9fields.length) return q9fields[0];
+
+    // Fallback: title line contains ODM question text
+    const title = [...document.querySelectorAll('h4,h5,h6,label,span,strong,p,div')].find(el => {
+        const t = (el.innerText || '').trim();
+        return (/^Q9\\s*:/i.test(t) || t.startsWith('Q9'))
+            && /ODM/i.test(t) && /OEM/i.test(t) && t.length < 400;
+    });
+    if (!title) return null;
+    let node = title;
+    for (let i = 0; i < 12 && node; i++) {
+        const inp = [...node.querySelectorAll(
+            'textarea, input[type="text"], .ql-editor, [contenteditable="true"]'
+        )].find(isInput);
+        if (inp) return inp;
+        node = node.parentElement;
+    }
+    return null;
+}
+"""
+
+_JS_Q9_FIELD_VALUE = f"""
+() => {{
+    const find = {_JS_FIND_Q9_FIELD};
+    const field = find();
+    if (!field) return '';
+    return (field.value || field.innerText || field.textContent || '').trim();
+}}
+"""
+
+_JS_FILL_Q9_FIELD = f"""
+(text) => {{
+    const find = {_JS_FIND_Q9_FIELD};
+    const field = find();
+    if (!field) return {{ ok: false, reason: 'field not found' }};
+
+    field.scrollIntoView({{ block: 'center' }});
+    field.focus();
+
+    const fire = (el) => {{
+        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+    }};
+
+    if (field.tagName === 'TEXTAREA' || field.tagName === 'INPUT') {{
+        const proto = field.tagName === 'TEXTAREA'
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (setter && setter.set) setter.set.call(field, text);
+        else field.value = text;
+        fire(field);
+    }} else {{
+        field.innerHTML = '';
+        field.textContent = text;
+        fire(field);
+    }}
+
+    const val = (field.value || field.innerText || field.textContent || '').trim();
+    return {{ ok: val.length > 3, len: val.length, preview: val.substring(0, 60) }};
+}}
+"""
+
+
+def _q9_field_has_content(page, min_len=5):
+    """True only when the Q9-specific field (between Q9 and Q10) has text."""
+    try:
+        val = page.evaluate(_JS_Q9_FIELD_VALUE)
+        if not val or len(val.strip()) < min_len:
+            return False
+        return Q9_VERIFY_MARKER.lower() in val.lower()
+    except Exception:
+        return False
+
+
+def fill_details_q9_odm_oem(page, value=None, label="Q9: Hardware ODMs/OEMs"):
+    """Fill Details Q9 text field — targets input strictly between Q9 and Q10 labels."""
+    if value is None:
+        value = ODM_TEXT
+
+    for marker in ("Q9:", "Which Hardware ODMs/OEMs", "qualified to operate"):
+        try:
+            page.locator(f"text={marker}").first.scroll_into_view_if_needed()
+            time.sleep(0.6)
+            break
         except Exception:
             continue
+
+    # Playwright: first textbox after the Q9 heading
+    try:
+        q9_title = page.locator(
+            "xpath=//*[starts-with(normalize-space(),'Q9') and contains(.,'ODM')]"
+        ).first
+        if q9_title.is_visible():
+            q9_title.scroll_into_view_if_needed()
+            for candidate in (
+                q9_title.locator("xpath=following::textarea[not(@disabled)][1]"),
+                q9_title.locator("xpath=following::input[@type='text'][not(@disabled)][1]"),
+                q9_title.locator("xpath=following::div[contains(@class,'ql-editor')][1]"),
+            ):
+                try:
+                    if candidate.count() and candidate.first.is_visible():
+                        el = candidate.first
+                        el.scroll_into_view_if_needed()
+                        el.click()
+                        tag = el.evaluate("e => e.tagName.toLowerCase()")
+                        if tag in ("textarea", "input"):
+                            el.fill(value)
+                        else:
+                            el.click()
+                            page.keyboard.press("Control+a")
+                            page.keyboard.type(value)
+                        page.keyboard.press("Tab")
+                        time.sleep(0.8)
+                        if _q9_field_has_content(page):
+                            print(f"  [OK] Filled '{label}'")
+                            return True
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    try:
+        result = page.evaluate(_JS_FILL_Q9_FIELD, value)
+        time.sleep(0.8)
+        if result and result.get("ok") and _q9_field_has_content(page):
+            print(f"  [OK] Filled '{label}' (JS: {result.get('preview', '')[:50]})")
+            return True
+        if result:
+            print(f"  [INFO] Q9 JS fill result: {result}")
+    except Exception as exc:
+        print(f"  [INFO] Q9 JS fill error: {exc}")
+
+    print(f"  [WARN] Could not fill '{label}'")
+    return False
+
+
+def ensure_details_q9_filled(page, max_attempts=5):
+    """Always fill Q9 and verify the Q9-specific field contains dummy ODM/OEM data."""
+    for attempt in range(1, max_attempts + 1):
+        print(f"  [INFO] Q9 fill attempt {attempt}/{max_attempts}...")
+        try:
+            page.locator("text=Which Hardware ODMs").first.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        time.sleep(0.4)
+        fill_details_q9_odm_oem(page)
+        time.sleep(1)
+        if _q9_field_has_content(page):
+            print("  [OK] Q9 verified — ODM/OEM data saved in Q9 field")
+            return True
+    print("  [WARN] Q9 still blank after retries")
+    shot(page, "dbg_Q9_blank")
+    return False
+
+
+def fill_near_question(page, question_fragment, value, label, multiline=True):
+    """Fill text/textarea or rich-text field that follows a question label."""
+    tag = "textarea" if multiline else "input[@type='text']"
+    plain_sels = [
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::{tag}[not(@disabled)][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/ancestor::div[contains(@class,'question') or contains(@class,'field') or contains(@class,'form-group')][1]//{tag}[1]",
+        f"xpath=//label[contains(.,'{question_fragment}')]/following::{tag}[1]",
+    ]
+    rich_sels = [
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::div[contains(@class,'ql-container')]//div[contains(@class,'ql-editor')]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::*[@contenteditable='true'][1]",
+    ]
+    if try_fill(page, plain_sels, value, label, silent=True):
+        return True
+    for sel in rich_sels:
+        for el in _visible_locators(page, sel):
+            try:
+                el.scroll_into_view_if_needed()
+                el.click()
+                page.keyboard.press("Control+a")
+                page.keyboard.type(value)
+                print(f"  [OK] Filled '{label}'")
+                return True
+            except Exception:
+                continue
+    print(f"  [WARN] Could not fill '{label}'")
+    return False
+
+
+# Alternate labels seen in QA dropdown options
+_DROPDOWN_ALIASES = {
+    "GPU": ["GPU", "Graphics Processing Unit (GPU)"],
+    "Europe": ["Europe", "Europe, Middle East and Africa", "EMEA"],
+    "Intel® Core™ Ultra Processors": [
+        "Ultra Processors", "Core Ultra", "Intel Core Ultra", "Intel® Core™ Ultra",
+        "Intel® Core™ Ultra Processors", "Intel Core Ultra Processors",
+    ],
+    "Intel® Xeon® Processors": [
+        "Xeon", "Intel Xeon", "Intel® Xeon®", "Intel Xeon Processors",
+        "Intel® Xeon® Processors",
+    ],
+}
+
+
+def _dropdown_triggers(page, question_fragment):
+    return [
+        f"xpath=//*[contains(.,'{question_fragment}')]/ancestor::div[contains(@class,'question') or contains(@class,'field') or contains(@class,'form-group')][1]//div[contains(@class,'select') or contains(@class,'multiselect') or contains(@class,'v-select')][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::div[contains(@class,'select') or contains(@class,'multiselect') or contains(@class,'v-select')][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::select[1]",
+    ]
+
+
+def select_multi_near_question(page, question_fragment, options, label):
+    """Select multiple values from dropdown near a question (Details Q2/Q3/Q4/Q8)."""
+    triggers = _dropdown_triggers(page, question_fragment)
+    ok = False
+    for opt in options:
+        variants = _DROPDOWN_ALIASES.get(opt, [opt])
+        for variant in variants:
+            if select_from_dropdown(page, triggers, variant, f"{label}: {opt}"):
+                ok = True
+                break
+        time.sleep(0.4)
+    return ok
+
+
+def _question_block_xpath(question_fragment):
+    q = question_fragment.replace("'", "\\'")
+    return (
+        f"//*[contains(.,'{q}')]/ancestor::div"
+        f"[contains(@class,'question') or contains(@class,'field') "
+        f"or contains(@class,'form-group')][1]"
+    )
+
+
+def _open_multiselect_panel(page, question_fragment):
+    """Open 'Select from the list below' checkbox panel for a question."""
+    block = _question_block_xpath(question_fragment)
+    open_sels = [
+        f"xpath={block}//*[contains(.,'Select from')]",
+        f"xpath={block}//div[contains(@class,'multiselect') or contains(@class,'v-select')]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::*[contains(.,'Select from')][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::div[contains(@class,'multiselect') or contains(@class,'v-select')][1]",
+    ]
+    for sel in open_sels:
+        for el in _visible_locators(page, sel):
+            try:
+                el.scroll_into_view_if_needed()
+                el.click()
+                time.sleep(0.8)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def _click_checkbox_option(page, question_fragment, opt):
+    """Click a visible checkbox option (inside open panel or inline list)."""
+    block = _question_block_xpath(question_fragment)
+    sels = [
+        f"xpath=//div[contains(@class,'multiselect') and contains(@class,'open')]//label[contains(.,'{opt}')]",
+        f"xpath=//*[@role='listbox' or @role='menu']//*[contains(.,'{opt}')]",
+        f"xpath={block}//label[contains(.,'{opt}')]",
+        f"xpath={block}//input[@type='checkbox'][following-sibling::*[contains(.,'{opt}')] or parent::label[contains(.,'{opt}')]]",
+        f"xpath=//label[contains(.,'{opt}')]//input[@type='checkbox']",
+        f"label:has-text('{opt}')",
+    ]
+    for sel in sels:
+        for el in _visible_locators(page, sel):
+            try:
+                el.scroll_into_view_if_needed()
+                cb = el.locator("input[type='checkbox']").first
+                if cb.count() > 0:
+                    try:
+                        if not cb.is_checked():
+                            cb.click()
+                        else:
+                            print(f"  [INFO] '{opt}' already checked")
+                    except Exception:
+                        el.click()
+                else:
+                    el.click()
+                return True
+            except Exception:
+                try:
+                    el.click(force=True)
+                    return True
+                except Exception:
+                    continue
+    return False
+
+
+def check_multiselect_checkboxes(page, question_fragment, options, label="",
+                                 max_count=3, select_all=False):
+    """
+    Open multiselect list and check checkbox options.
+    Overview Q5: up to 3 industries. Details Q2: all workload locations.
+    """
+    try:
+        page.locator(f"text={question_fragment}").first.scroll_into_view_if_needed()
+    except Exception:
+        pass
+    time.sleep(0.4)
+
+    _open_multiselect_panel(page, question_fragment)
+
+    checked = 0
+    limit = len(options) if select_all else max_count
+    for opt in options:
+        if checked >= limit:
+            break
+        if not _open_multiselect_panel(page, question_fragment) and checked > 0:
+            time.sleep(0.5)
+        if _click_checkbox_option(page, question_fragment, opt):
+            checked += 1
+            print(f"  [OK] Checked '{opt}' for {label or question_fragment}")
+            time.sleep(0.35)
+        else:
+            print(f"  [WARN] Could not check '{opt}' for {label or question_fragment}")
+
+    try:
+        page.locator("text=Overall Progress").first.click()
+    except Exception:
+        page.keyboard.press("Escape")
+    time.sleep(0.5)
+    return checked > 0
+
+
+def check_checkbox_options(page, question_fragment, options, max_count=3, label=""):
+    """Alias — check multiselect checkbox options near a question."""
+    return check_multiselect_checkboxes(
+        page, question_fragment, options, label=label, max_count=max_count,
+    )
+
+
+def wait_for_field_valid(page, question_fragment, timeout_sec=12):
+    """Wait until a required field shows valid state (green check, no red error)."""
+    block_xpath = _question_block_xpath(question_fragment)
+    for _ in range(timeout_sec):
+        try:
+            block = page.locator(f"xpath={block_xpath}")
+            if block.count() == 0:
+                time.sleep(1)
+                continue
+            if block.locator("[class*='error'], [class*='invalid'], [class*='warning-icon']").count() > 0:
+                time.sleep(1)
+                continue
+            if block.locator("[class*='success'], [class*='valid'], [class*='check']").count() > 0:
+                return True
+            # No red icon visible near the question row
+            return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+
+def wait_for_sidebar_green(page, section_name, timeout_sec=25):
+    """Wait until sidebar section shows green completion check."""
+    for _ in range(timeout_sec):
+        try:
+            row = page.locator(
+                f"xpath=//li[contains(.,'{section_name}')]"
+                f" | //a[contains(.,'{section_name}')]/ancestor::li[1]"
+            ).first
+            if row.count() == 0:
+                time.sleep(1)
+                continue
+            html = (row.get_attribute("class") or "") + row.inner_html()
+            html_l = html.lower()
+            has_green = any(k in html_l for k in (
+                "complete", "success", "check", "valid", "done", "green",
+            ))
+            has_red = any(k in html_l for k in (
+                "error", "invalid", "warning", "incomplete", "required-error",
+            ))
+            icon_green = row.locator(
+                "[class*='check'], [class*='success'], [class*='complete'], svg"
+            ).count() > 0
+            if has_green and not has_red:
+                print(f"  [OK] Sidebar '{section_name}' — green check visible")
+                return True
+            if icon_green and not has_red:
+                print(f"  [OK] Sidebar '{section_name}' — section complete")
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    print(f"  [INFO] Sidebar '{section_name}' green check not confirmed yet")
+    return False
+
+
+def click_radio_yn(page, q_text_fragment, answer, label):
+    """Select Yes or No radio button for a question."""
+    selectors = [
+        f"xpath=//*[contains(.,'{q_text_fragment}')]/ancestor::div[contains(@class,'question') or contains(@class,'field') or contains(@class,'form-group')][1]//label[normalize-space()='{answer}']",
+        f"xpath=//*[contains(.,'{q_text_fragment}')]/following::label[normalize-space()='{answer}'][1]",
+        f"xpath=//*[contains(.,'{q_text_fragment}')]/following::span[normalize-space()='{answer}'][1]",
+        f"xpath=//*[contains(.,'{q_text_fragment}')]/following::input[@type='radio'][@value='{answer}'][1]",
+        f"xpath=//*[contains(.,'{q_text_fragment}')]/following::input[@type='radio'][following-sibling::*[contains(.,'{answer}')]][1]",
+        f"xpath=//*[contains(.,'{q_text_fragment}')]/following::*[contains(@class,'radio')][contains(.,'{answer}')][1]",
+    ]
+    for sel in selectors:
+        for el in _visible_locators(page, sel):
+            try:
+                el.scroll_into_view_if_needed()
+                el.click()
+                print(f"  [OK] Radio '{answer}' for '{label}'")
+                time.sleep(0.4)
+                return True
+            except Exception:
+                try:
+                    el.click(force=True)
+                    print(f"  [OK] Radio '{answer}' for '{label}' (force)")
+                    time.sleep(0.4)
+                    return True
+                except Exception:
+                    continue
     print(f"  [WARN] Could not click radio '{answer}' for '{label}'")
     return False
 
 
+def fill_conditional_after_radio(page, question_fragment, value, label):
+    """Fill text field that appears after a Yes/No radio selection."""
+    time.sleep(0.8)
+    sels = [
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::textarea[not(@disabled)][1]",
+        f"xpath=//*[contains(.,'{question_fragment}')]/following::input[@type='text'][not(@disabled)][1]",
+        "xpath=(//textarea[not(@disabled)])[last()]",
+        "xpath=(//input[@type='text' and not(@disabled)])[last()]",
+    ]
+    return try_fill(page, sels, value, label)
+
+
+def click_sidebar_tab(page, tab_name):
+    return try_click(page, [
+        f"xpath=//li[.//*[normalize-space()='{tab_name}']]//a",
+        f"xpath=//span[normalize-space()='{tab_name}']/ancestor::a[1]",
+        f"xpath=//a[normalize-space()='{tab_name}']",
+        f"text={tab_name}",
+    ], f"{tab_name} sidebar tab", timeout=10000)
+
+
+def click_done(page):
+    """Exit section edit mode (Done button top-right of active section)."""
+    return try_click(page, [
+        "xpath=//*[contains(.,'Overall Progress')]/following::button[normalize-space()='Done'][1]",
+        "xpath=//button[normalize-space()='Done']",
+        "button:has-text('Done')",
+    ], "Done", timeout=12000)
+
+
 def click_continue(page):
     return try_click(page, [
+        "xpath=//*[contains(.,'Overall Progress')]/following::button[normalize-space()='Continue'][1]",
         "xpath=//button[normalize-space()='Continue']",
         "button:has-text('Continue')",
         "xpath=//input[@value='Continue']",
-    ], "Continue", timeout=10000)
+    ], "Continue", timeout=15000)
 
 
 def click_next_step(page):
     return try_click(page, [
+        "xpath=//*[contains(.,'Overall Progress')]/following::button[normalize-space()='Next Step'][1]",
         "xpath=//button[normalize-space()='Next Step']",
         "button:has-text('Next Step')",
         "xpath=//a[normalize-space()='Next Step']",
-    ], "Next Step", timeout=10000)
+    ], "Next Step", timeout=15000)
+
+
+def slow_scroll_top_to_bottom(page, step_px=100, pause_sec=0.4):
+    """Slowly scroll the page from top to bottom (e.g. after Preview)."""
+    print("  [INFO] Slow scroll: top → bottom...", flush=True)
+    try:
+        page.evaluate("window.scrollTo(0, 0)")
+        time.sleep(0.6)
+        viewport = page.viewport_size or {"height": 800}
+        vh = viewport.get("height", 800)
+        y = 0
+        max_rounds = 200
+        for _ in range(max_rounds):
+            height = page.evaluate(
+                "() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)"
+            )
+            if y >= height - vh:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                break
+            y += step_px
+            page.evaluate(f"window.scrollTo(0, {y})")
+            time.sleep(pause_sec)
+        time.sleep(0.8)
+        print("  [OK] Slow scroll complete")
+    except Exception as exc:
+        print(f"  [WARN] Slow scroll failed: {exc}")
+
+
+def wait_on_projects_listing(page, wait_sec=20):
+    """Stay on the Projects listing page after publish."""
+    print(f"  [INFO] Staying on Projects listing page for {wait_sec}s...", flush=True)
+    time.sleep(wait_sec)
+    print("  [OK] Projects listing wait complete")
+
+
+def wait_for_publish_enabled(page, timeout_sec=90):
+    """Wait until Publish Project button is enabled (required sections complete)."""
+    print(f"  Waiting for Publish Project to enable (up to {timeout_sec}s)...", flush=True)
+    for i in range(timeout_sec):
+        for el in _visible_locators(page, "button:has-text('Publish Project')"):
+            try:
+                disabled = el.get_attribute("disabled")
+                aria_disabled = el.get_attribute("aria-disabled")
+                if el.is_enabled() and not disabled and aria_disabled != "true":
+                    print(f"  [OK] Publish Project enabled after {i + 1}s")
+                    return True
+            except Exception:
+                continue
+        if (i + 1) % 15 == 0:
+            print(f"  ... Publish still disabled ({i + 1}s)", flush=True)
+        time.sleep(1)
+    print("  [WARN] Publish Project did not become enabled in time")
+    return False
+
+
+def click_publish_project(page):
+    """Click Publish Project only when the banner button is enabled."""
+    try:
+        page.locator("text=Overall Progress").first.scroll_into_view_if_needed()
+    except Exception:
+        pass
+    if not wait_for_publish_enabled(page):
+        shot(page, "dbg_Publish_Project")
+        return False
+    sels = [
+        "xpath=//*[contains(.,'Overall Progress')]/following::button[contains(.,'Publish Project')][1]",
+        "button:has-text('Publish Project')",
+        "xpath=//button[contains(.,'Publish Project')]",
+    ]
+    for sel in sels:
+        for el in _visible_locators(page, sel):
+            try:
+                el.scroll_into_view_if_needed()
+                el.click()
+                print("  [OK] Clicked 'Publish Project'")
+                return True
+            except Exception:
+                continue
+    print("  [WARN] Could not click 'Publish Project'")
+    shot(page, "dbg_Publish_Project")
+    return False
 
 
 def is_login_page(page) -> bool:
@@ -1212,15 +1902,7 @@ def run_test():
         # Image 5: shows pencil ✎ Edit button on the right side
         # ══════════════════════════════════════════════════════
         sep(1, "Click Edit button on Overview")
-        try_click(page, [
-            "xpath=//a[contains(.,'Edit') and not(contains(.,'Project'))]",
-            "xpath=//button[normalize-space()='Edit']",
-            "xpath=//*[@class and contains(@class,'edit')]//a",
-            # The edit icon next to Overview
-            "xpath=//h2[contains(.,'Overview')]/following::a[contains(.,'Edit')][1]",
-            "xpath=//h2[contains(.,'Overview')]/following::button[contains(.,'Edit')][1]",
-            ".edit-btn", "[title='Edit']", "a.edit", "button.edit",
-        ], "Edit", timeout=10000)
+        click_section_edit(page, "Overview")
         time.sleep(2)
         shot(page, "S01_edit_clicked")
 
@@ -1252,88 +1934,27 @@ def run_test():
         ], PROJECT_DESC, "Q2: Project Description")
         time.sleep(0.5)
 
-        # Q3: Business Problem — rich text editor (has toolbar)
-        # Image 6: Q3 has Normal/Bold/Italic/etc toolbar → rich text
-        q3_containers = [
-            "xpath=//label[contains(.,'business problem')]/following::div[contains(@class,'ql-')][1]/..",
-            "xpath=//h4[contains(.,'Q3')]/following::div[1]",
-            "xpath=(//div[contains(@class,'ql-container')])[1]",
-        ]
-        filled_q3 = False
-        for cont in q3_containers:
-            try:
-                editor = page.query_selector(f"{cont} .ql-editor, {cont} [contenteditable]")
-                if editor:
-                    editor.scroll_into_view_if_needed()
-                    editor.click()
-                    page.keyboard.press("Control+a")
-                    page.keyboard.type(BUSINESS_PROBLEM)
-                    print("  [OK] Q3: Business Problem filled")
-                    filled_q3 = True
-                    break
-            except Exception:
-                continue
-        if not filled_q3:
-            # Use JS to fill all rich text editors in order
-            page.evaluate(f"""
-                var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-                if(eds[0]) {{
-                    eds[0].focus();
-                    document.execCommand('selectAll', false, null);
-                    document.execCommand('insertText', false, {json.dumps(BUSINESS_PROBLEM)});
-                }}
-            """)
-            print("  [OK] Q3: Business Problem filled via JS")
+        # Q3–Q4: rich text editors
+        fill_near_question(page, "business problem", BUSINESS_PROBLEM, "Q3: Business Problem")
+        if not fill_near_question(page, "key features", SOLUTION_FEATURES, "Q4: Solution & Key Features"):
+            fill_near_question(page, "solution", SOLUTION_FEATURES, "Q4: Solution & Key Features")
         time.sleep(0.5)
 
-        # Q4: Solution — rich text editor (second rich text editor)
-        page.evaluate(f"""
-            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-            if(eds[1]) {{
-                eds[1].focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('insertText', false, {json.dumps(SOLUTION_FEATURES)});
-            }}
-        """)
-        print("  [OK] Q4: Solution & Key Features filled")
-        time.sleep(0.5)
+        # Q5: Industry — multiselect checkbox list (select up to 3)
+        page.locator("text=industry does your application apply").first.scroll_into_view_if_needed()
+        time.sleep(0.3)
+        check_multiselect_checkboxes(
+            page, "industry does your application apply",
+            ["Manufacturing", "Healthcare", "Retail"],
+            label="Q5: Industry", max_count=3,
+        )
+        wait_for_field_valid(page, "industry does your application apply")
 
-        # Q5: Industry — "Select from this list" dropdown (up to 3)
-        # Image 6: Q5 shows a dropdown "Select from this list"
-        industry_trigger = [
-            "xpath=//label[contains(.,'industry')]/following::div[contains(@class,'select')][1]",
-            "xpath=//label[contains(.,'industry')]/following::select[1]",
-            "xpath=//select[1]",
-            "select",
-        ]
-        # Try native select first
-        for industry in ["Manufacturing", "Healthcare", "Retail"]:
-            selected = False
-            for sel in ["xpath=//select[1]", "select"]:
-                try:
-                    page.select_option(sel, label=industry, timeout=3000)
-                    print(f"  [OK] Q5: Industry '{industry}' selected (native)")
-                    selected = True
-                    break
-                except Exception:
-                    continue
-            if not selected:
-                select_from_dropdown(page, [
-                    "xpath=//label[contains(.,'industry')]/following::div[contains(@class,'v-select') or contains(@class,'multiselect')][1]",
-                    "xpath=//label[contains(.,'industry')]/following::div[contains(@class,'select')][1]",
-                ], industry, f"Q5 Industry: {industry}")
-
-        # Q6: Use Cases — rich text / textarea (Image 6 shows toolbar for Q6)
-        page.evaluate(f"""
-            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-            if(eds[2]) {{
-                eds[2].focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('insertText', false,
-                    'Predictive Maintenance, Computer Vision, Quality Control');
-            }}
-        """)
-        print("  [OK] Q6: Use Cases filled")
+        # Q6: Use Cases — plain text field
+        fill_near_question(
+            page, "use cases does your application address",
+            USE_CASES_TEXT, "Q6: Use Cases", multiline=True,
+        )
         time.sleep(0.5)
 
         shot(page, "S02_overview_filled")
@@ -1345,6 +1966,7 @@ def run_test():
         sep(3, "Click Continue (Overview → Details)")
         click_continue(page)
         time.sleep(3)
+        wait_for_sidebar_green(page, "Overview")
         shot(page, "S03_after_continue_overview")
         print(f"  URL: {page.url}")
 
@@ -1354,114 +1976,115 @@ def run_test():
         # ══════════════════════════════════════════════════════
         sep(4, "Details tab — click Edit + fill Q1–Q12")
 
-        # Click Details in left sidebar
-        try_click(page, [
-            "xpath=//li[.//text()[normalize-space()='Details']]//a",
-            "xpath=//span[normalize-space()='Details']/ancestor::a[1]",
-            "text=Details",
-        ], "Details sidebar tab", timeout=8000)
+        click_sidebar_tab(page, "Details")
         time.sleep(2)
-
-        # Click Edit on Details section
-        try_click(page, [
-            "xpath=//button[normalize-space()='Edit']",
-            "xpath=//a[normalize-space()='Edit']",
-            "button:has-text('Edit')", "a:has-text('Edit')",
-        ], "Edit (Details)", timeout=10000)
+        if not click_section_edit(page, "Details"):
+            try_click(page, [
+                "button:has-text('Edit'):not(:has-text('Project'))",
+                "a:has-text('Edit'):not(:has-text('Project'))",
+            ], "Edit (Details fallback)", timeout=10000)
         time.sleep(2)
         shot(page, "S04_details_edit_open")
 
-        # Q1: AI workload description — plain textarea (Image 7 top)
-        try_fill(page, [
-            "xpath=//label[contains(.,'AI workload')]/following::textarea[1]",
-            "textarea[name*='ai_workload' i]",
-            "textarea[name*='workload' i]",
-            "xpath=(//textarea)[1]",
-        ], AI_WORKLOAD_DESC, "Q1: AI Workload Description")
-        time.sleep(0.4)
+        def _scroll_q(fragment):
+            try:
+                page.locator(f"text={fragment}").first.scroll_into_view_if_needed()
+                time.sleep(0.3)
+            except Exception:
+                pass
 
-        # Q2: Where does AI workload take place — "Select from this list" dropdown
-        # Image 7: "Select from this list" dropdown
-        for loc in ["Edge", "Cloud"]:
-            select_from_dropdown(page, [
-                "xpath=//label[contains(.,'AI workload take place')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
-                "xpath=(//div[contains(@class,'multiselect')])[1]",
-                "xpath=(//select)[1]",
-            ], loc, f"Q2: {loc}")
+        # Q1: AI workload description — text field
+        fill_near_question(
+            page, "type of AI workload your application performs",
+            AI_WORKLOAD_DESC, "Q1: AI Workload", multiline=True,
+        )
+        wait_for_field_valid(page, "type of AI workload your application performs")
 
-        # Q3: Hardware components — dropdown
-        for hw in ["CPU", "GPU", "NPU"]:
-            select_from_dropdown(page, [
-                "xpath=//label[contains(.,'hardware components')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
-                "xpath=(//div[contains(@class,'multiselect')])[2]",
-            ], hw, f"Q3: {hw}")
-
-        # Q4: What hardware — dropdown
-        for hw in ["Intel® Core™ Ultra Processors", "Intel® Xeon® Processors"]:
-            select_from_dropdown(page, [
-                "xpath=//label[contains(.,'What hardware does')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
-                "xpath=(//div[contains(@class,'multiselect')])[3]",
-            ], hw, f"Q4: {hw}")
-
-        # Q5: Open Software Platform — rich text editor with toolbar (Image 7)
-        # "Please list the software ingredients or type 'see attached'"
-        page.evaluate(f"""
-            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-            if(eds[0]) {{
-                eds[0].focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('insertText', false, 'OpenVINO, oneAPI, OpenDLStream');
-            }}
-        """)
-        print("  [OK] Q5: Open Software Platform ingredients filled")
+        # Q2: workload location — multiselect checkboxes (select all that apply)
+        page.locator("text=AI workload take place").first.scroll_into_view_if_needed()
         time.sleep(0.3)
+        check_multiselect_checkboxes(
+            page, "AI workload take place",
+            ["Edge", "Cloud", "On-Premises", "Hybrid"],
+            label="Q2: Workload Location", select_all=True,
+        )
+        wait_for_field_valid(page, "AI workload take place")
 
-        # Q6: Onboard process on Intel AI Edge System — Yes/No radio
-        # Image 7: "Yes" / "No" radio buttons
+        # Q3–Q4: multi-select dropdowns
+        select_multi_near_question(
+            page, "hardware components run the AI workload",
+            ["CPU", "GPU", "NPU"], "Q3: Hardware Components",
+        )
+        select_multi_near_question(
+            page, "What hardware does your application run on",
+            ["Intel® Core™ Ultra Processors", "Intel® Xeon® Processors"],
+            "Q4: Application Hardware",
+        )
+
+        # Q5: Open Software Platform — required rich text editor field
+        _scroll_q("ingredients from the Open Software Platform")
+        fill_rich_text_near_question(
+            page, "ingredients from the Open Software Platform",
+            OPEN_SOFTWARE_TEXT, "Q5: Open Software Platform",
+        )
+        if not wait_for_field_valid(page, "Open Software Platform"):
+            fill_rich_text_near_question(
+                page, "one or more ingredients",
+                OPEN_SOFTWARE_TEXT, "Q5: Open Software Platform (retry)",
+            )
+            wait_for_field_valid(page, "Open Software Platform")
+
+        # Q6: Onboard process — Yes/No
+        _scroll_q("onboard process")
         click_radio_yn(page, "onboard process", "Yes", "Q6: Onboard Process")
 
-        # Q7: Commercially available — Yes/No radio
-        click_radio_yn(page, "commercially available", "Yes", "Q7: Commercially Available")
+        # Q7: Commercially available — Yes/No (No reveals follow-up text field)
+        _scroll_q("commercially available")
+        click_radio_yn(page, "commercially available", "No", "Q7: Commercially Available")
+        fill_conditional_after_radio(
+            page, "commercially available", Q7_NO_REASON, "Q7: Not Available Reason",
+        )
 
-        # Q8: Geographies — "Select from this list" dropdown
-        for geo in ["North America", "Europe", "Asia Pacific"]:
-            select_from_dropdown(page, [
-                "xpath=//label[contains(.,'geographies')]/following::div[contains(@class,'select') or contains(@class,'multiselect')][1]",
-                "xpath=(//div[contains(@class,'multiselect')])[4]",
-            ], geo, f"Q8: {geo}")
+        # Q8: Geographies — multi-select dropdown
+        _scroll_q("geographies")
+        select_multi_near_question(
+            page, "geographies where this application",
+            ["North America", "Europe", "Asia Pacific"], "Q8: Geographies",
+        )
 
-        # Q9: Hardware ODMs/OEMs — plain textarea
-        # Image 7: "Please provide each ODM/OEM name on a separate line"
-        try_fill(page, [
-            "xpath=//label[contains(.,'ODM') or contains(.,'OEM')]/following::textarea[1]",
-            "xpath=//*[contains(.,'ODM')]/following::textarea[1]",
-        ], ODM_TEXT, "Q9: Hardware ODMs/OEMs")
-        time.sleep(0.3)
+        # Q9: Hardware ODMs/OEMs — required field (one ODM/OEM name per line)
+        _scroll_q("Which Hardware ODMs/OEMs")
+        ensure_details_q9_filled(page)
 
-        # Q10: Distribution Partners — Yes/No radio
-        click_radio_yn(page, "Distribution Partners", "No", "Q10: Distribution Partners")
+        # Q10: Distribution Partners — Yes/No (Yes reveals follow-up text field)
+        _scroll_q("Distribution Partners")
+        click_radio_yn(page, "Distribution Partners", "Yes", "Q10: Distribution Partners")
+        fill_conditional_after_radio(
+            page, "Distribution Partners", Q10_YES_PARTNERS, "Q10: Partner Details",
+        )
 
-        # Q11: Customer Support — plain textarea
-        try_fill(page, [
-            "xpath=//label[contains(.,'customer support')]/following::textarea[1]",
-            "xpath=//*[contains(.,'manage customer support')]/following::textarea[1]",
-        ], SUPPORT_DESC, "Q11: Customer Support")
-        time.sleep(0.3)
+        # Q11: Customer Support — text field
+        _scroll_q("customer support")
+        fill_near_question(
+            page, "manage customer support",
+            SUPPORT_DESC, "Q11: Customer Support", multiline=True,
+        )
+        wait_for_field_valid(page, "manage customer support")
 
-        # Q12: Success Stories — rich text editor (Image 7 bottom, has toolbar)
-        try:
-            page.evaluate(f"""
-                var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-                var last = eds[eds.length - 1];
-                if(last) {{
-                    last.focus();
-                    document.execCommand('selectAll', false, null);
-                    document.execCommand('insertText', false, {json.dumps(SUCCESS_STORY)});
-                }}
-            """)
-            print("  [OK] Q12: Success Story filled")
-        except Exception as e:
-            print(f"  [WARN] Q12 fill failed: {e}")
+        # Q12: Success Stories — rich text editor
+        _scroll_q("success stories")
+        if not fill_rich_text_near_question(
+            page, "success stories", SUCCESS_STORY, "Q12: Success Story",
+        ):
+            fill_near_question(
+                page, "success stories",
+                SUCCESS_STORY, "Q12: Success Story", multiline=True,
+            )
+        wait_for_field_valid(page, "success stories")
+
+        # Final pass — Q9 must have content before leaving Details
+        _scroll_q("Which Hardware ODMs/OEMs")
+        ensure_details_q9_filled(page)
 
         shot(page, "S04_details_filled")
 
@@ -1469,8 +2092,11 @@ def run_test():
         # STEP 5 — Click Continue (Details → Additional Info)
         # ══════════════════════════════════════════════════════
         sep(5, "Click Continue (Details)")
+        if not _q9_field_has_content(page):
+            ensure_details_q9_filled(page)
         click_continue(page)
         time.sleep(3)
+        wait_for_sidebar_green(page, "Details")
         shot(page, "S05_after_continue_details")
 
         # ══════════════════════════════════════════════════════
@@ -1478,17 +2104,12 @@ def run_test():
         # Image 8: shows Additional Info tab with Edit button top-right
         # ══════════════════════════════════════════════════════
         sep(6, "Additional Info — click Edit")
-        try_click(page, [
-            "xpath=//li[contains(.,'Additional Info')]//a",
-            "text=Additional Info",
-        ], "Additional Info sidebar tab", timeout=8000)
+        click_sidebar_tab(page, "Additional Info")
         time.sleep(2)
-
-        try_click(page, [
-            "xpath=//button[normalize-space()='Edit']",
-            "xpath=//a[normalize-space()='Edit']",
-            "button:has-text('Edit')", "a:has-text('Edit')",
-        ], "Edit (Additional Info)", timeout=10000)
+        if not click_section_edit(page, "Additional Info"):
+            try_click(page, [
+                "button:has-text('Edit'):not(:has-text('Project'))",
+            ], "Edit (Additional Info fallback)", timeout=10000)
         time.sleep(2)
         shot(page, "S06_additional_info_edit")
 
@@ -1499,6 +2120,7 @@ def run_test():
         # ══════════════════════════════════════════════════════
         sep(7, "Add New Section + fill Section 1")
         try_click(page, [
+            "xpath=//*[contains(.,'Additional Info')]/following::button[contains(.,'Add New Section')][1]",
             "xpath=//button[contains(.,'Add New Section')]",
             "xpath=//a[contains(.,'Add New Section')]",
             "button:has-text('Add New Section')",
@@ -1508,17 +2130,9 @@ def run_test():
         time.sleep(2)
         shot(page, "S07_section_added")
 
-        # Image 9: "Section 1" header appears with a rich text editor below it
-        # Fill the Section 1 content via rich text editor
-        page.evaluate(f"""
-            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-            if(eds[0]) {{
-                eds[0].focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('insertText', false, {json.dumps(ADDITIONAL_INFO)});
-            }}
-        """)
-        print("  [OK] Section 1 content filled")
+        # Fill Section 1 (textarea or rich text)
+        if not fill_near_question(page, "Section 1", ADDITIONAL_INFO, "Section 1", multiline=True):
+            fill_rich_text(page, "xpath=//*[contains(.,'Section 1')]", ADDITIONAL_INFO, "Section 1")
         shot(page, "S07_section_filled")
 
         # ══════════════════════════════════════════════════════
@@ -1530,68 +2144,49 @@ def run_test():
         shot(page, "S08_after_continue_additional")
 
         # ══════════════════════════════════════════════════════
-        # STEP 9 — Application Steps: click Edit
-        # Image 10: Application Steps tab with Edit button + "+ Add New Steps"
+        # STEP 9 — Application Steps: Next Step → Edit → fill step
         # ══════════════════════════════════════════════════════
-        sep(9, "Application Steps — click Edit")
-        try_click(page, [
-            "xpath=//li[contains(.,'Application Steps')]//a",
-            "text=Application Steps",
-        ], "Application Steps sidebar tab", timeout=8000)
+        sep(9, "Application Steps — Edit then fill step")
+        click_sidebar_tab(page, "Application Steps")
         time.sleep(2)
-
-        try_click(page, [
-            "xpath=//button[normalize-space()='Edit']",
-            "xpath=//a[normalize-space()='Edit']",
-            "button:has-text('Edit')", "a:has-text('Edit')",
-        ], "Edit (Application Steps)", timeout=10000)
+        if not click_section_edit(page, "Application Steps"):
+            try_click(page, [
+                "button:has-text('Edit'):not(:has-text('Project'))",
+            ], "Edit (Application Steps fallback)", timeout=10000)
         time.sleep(2)
         shot(page, "S09_appsteps_edit")
 
         # ══════════════════════════════════════════════════════
-        # STEP 10 — Click '+ Add New Steps', fill Title + Desc
-        # Image 10: "+ Add New Steps" button
-        # Image 11: after clicking, shows "Step Title *" input + "Step Description" rich text
+        # STEP 10 — Fill Step Title + Step Description
         # ══════════════════════════════════════════════════════
-        sep(10, "Add New Step + fill Title & Description")
+        sep(10, "Fill Step Title & Description")
         try_click(page, [
             "xpath=//button[contains(.,'Add New Steps')]",
-            "xpath=//a[contains(.,'Add New Steps')]",
             "button:has-text('Add New Steps')",
             "text=+ Add New Steps",
-            "text=Add New Steps",
-        ], "+ Add New Steps", timeout=15000)
-        time.sleep(2)
-        shot(page, "S10_step_appeared")
+        ], "+ Add New Steps", timeout=10000)
+        time.sleep(1)
 
-        # Image 11: "Step Title *" is a plain text input
         try_fill(page, [
             "xpath=//label[contains(.,'Step Title')]/following::input[1]",
             "input[placeholder*='Step Title' i]",
             "input[name*='step_title' i]",
-            "input[name*='title' i]",
-            "xpath=(//input[@type='text'])[last()]",
+            "xpath=//*[contains(.,'Step Title')]/following::input[@type='text'][1]",
         ], STEP_TITLE, "Step Title")
         time.sleep(0.4)
 
-        # Image 11: "Step Description" is a rich text editor with toolbar
-        page.evaluate(f"""
-            var eds = document.querySelectorAll('.ql-editor, [contenteditable="true"]');
-            if(eds[0]) {{
-                eds[0].focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('insertText', false, {json.dumps(STEP_DESC)});
-            }}
-        """)
-        print("  [OK] Step Description filled")
+        if not fill_near_question(page, "Step Description", STEP_DESC, "Step Description", multiline=True):
+            fill_rich_text(page, "xpath=//*[contains(.,'Step Description')]", STEP_DESC, "Step Description")
         shot(page, "S10_step_filled")
 
         # ══════════════════════════════════════════════════════
-        # STEP 11 — Click Continue (App Steps → Media)
+        # STEP 11 — Done (save App Steps) → go to Media
         # ══════════════════════════════════════════════════════
-        sep(11, "Click Continue (Application Steps)")
-        click_continue(page)
-        time.sleep(3)
+        sep(11, "Done (Application Steps) → Media")
+        click_done(page)
+        time.sleep(2)
+        click_sidebar_tab(page, "Media")
+        time.sleep(2)
         shot(page, "S11_after_continue_appsteps")
 
         # ══════════════════════════════════════════════════════
@@ -1599,25 +2194,19 @@ def run_test():
         # Image 12: Media tab shows "No media" + "Next Step" button (bottom right)
         # ══════════════════════════════════════════════════════
         sep(12, "Skip Media — click Next Step")
-        click_next_step(page)
+        if not click_next_step(page):
+            click_done(page)
+            time.sleep(1)
+            click_next_step(page)
         time.sleep(3)
         shot(page, "S12_skip_media")
         print(f"  URL: {page.url}")
 
         # ══════════════════════════════════════════════════════
-        # STEP 13 — Skip My Team: click Next Step
-        # ══════════════════════════════════════════════════════
-        sep(13, "Skip My Team — click Next Step")
-        click_next_step(page)
-        time.sleep(3)
-        shot(page, "S13_skip_my_team")
-        print(f"  URL: {page.url}")
-
-        # ══════════════════════════════════════════════════════
-        # STEP 14 — Click Preview (under the progress banner)
+        # STEP 13 — Click Preview (under the progress banner; skip My Team)
         # Image 13: shows "Preview" button in the dark progress bar (bottom of banner)
         # ══════════════════════════════════════════════════════
-        sep(14, "Click Preview (in progress banner)")
+        sep(13, "Click Preview (in progress banner)")
         try_click(page, [
             "xpath=//button[normalize-space()='Preview']",
             "xpath=//a[normalize-space()='Preview']",
@@ -1625,15 +2214,16 @@ def run_test():
             "a:has-text('Preview')",
             "text=Preview",
         ], "Preview", timeout=15000)
-        time.sleep(4)
-        shot(page, "S14_preview_page")
+        time.sleep(3)
         print(f"  URL: {page.url}")
+        slow_scroll_top_to_bottom(page)
+        shot(page, "S13_preview_page")
 
         # ══════════════════════════════════════════════════════
-        # STEP 15 — Click Edit Project (top right corner)
+        # STEP 14 — Click Edit Project (top right corner)
         # Image 14: shows "Edit Project" button at top right of the preview page
         # ══════════════════════════════════════════════════════
-        sep(15, "Click Edit Project (top-right on preview)")
+        sep(14, "Click Edit Project (top-right on preview)")
         try_click(page, [
             "xpath=//button[normalize-space()='Edit Project']",
             "xpath=//a[normalize-space()='Edit Project']",
@@ -1642,23 +2232,19 @@ def run_test():
             "text=Edit Project",
         ], "Edit Project", timeout=15000)
         time.sleep(3)
-        shot(page, "S15_edit_project")
+        shot(page, "S14_edit_project")
         print(f"  URL: {page.url}")
 
         # ══════════════════════════════════════════════════════
-        # STEP 16 — Click Publish Project
+        # STEP 15 — Click Publish Project
         # Image 13: shows "Publish Project" button in dark banner (100% progress)
         # ══════════════════════════════════════════════════════
-        sep(16, "Click Publish Project")
-        try_click(page, [
-            "xpath=//button[normalize-space()='Publish Project']",
-            "xpath=//a[normalize-space()='Publish Project']",
-            "button:has-text('Publish Project')",
-            "a:has-text('Publish Project')",
-            "text=Publish Project",
-        ], "Publish Project", timeout=20000)
+        sep(15, "Click Publish Project")
+        wait_for_sidebar_green(page, "Overview")
+        wait_for_sidebar_green(page, "Details")
+        click_publish_project(page)
         time.sleep(3)
-        shot(page, "S16_after_publish_click")
+        shot(page, "S15_after_publish_click")
 
         # Confirmation dialog (if any)
         for conf in ["button:has-text('Confirm')", "button:has-text('Yes')",
@@ -1672,14 +2258,14 @@ def run_test():
             except PWTimeout:
                 continue
 
-        shot(page, "S16_published")
+        shot(page, "S15_published")
         print(f"  URL: {page.url}")
 
         # ══════════════════════════════════════════════════════
-        # STEP 17 — Click Projects under sub-menu
+        # STEP 16 — Click Projects under sub-menu
         # Image 4: "Projects" is in the blue sub-navigation bar
         # ══════════════════════════════════════════════════════
-        sep(17, "Click 'Projects' in sub-menu")
+        sep(16, "Click 'Projects' in sub-menu")
         try_click(page, [
             # Blue sub-nav bar has: Intake form | Projects | Resources | Advisors | Help
             "xpath=//nav[contains(@class,'sub') or contains(@class,'inner')]//a[normalize-space()='Projects']",
@@ -1688,9 +2274,10 @@ def run_test():
             "xpath=//a[normalize-space()='Projects']",
             "text=Projects",
         ], "Projects (sub-menu)", timeout=15000)
-        time.sleep(4)
-        shot(page, "S17_projects_page")
+        time.sleep(2)
+        shot(page, "S16_projects_page")
         print(f"  URL: {page.url}")
+        wait_on_projects_listing(page, wait_sec=20)
 
         # ── Final summary ─────────────────────────────────────
         print(f"\n{'═'*62}")
@@ -1698,7 +2285,7 @@ def run_test():
         print(f"{'═'*62}")
         print(f"  Project Name : {PROJECT_NAME}")
         print(f"  Final URL    : {page.url}")
-        print("  Screenshots  : S01 → S17 saved")
+        print("  Screenshots  : S01 → S16 saved")
 
         time.sleep(5)
         browser.close()
